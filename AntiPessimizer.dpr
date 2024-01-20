@@ -8,6 +8,9 @@ var
   g_InfoSourceClassList : TList = nil;
   Code : Pointer;
 
+  ExecutableBuffer : array [0..256] of Byte;
+  ExecutableBufferPtr : Pointer;
+
 type
   TestBase = class
     function TestProc: Integer; virtual;
@@ -96,53 +99,24 @@ asm
   jmp rcx
 end;
 
-
-{
-procedure HookJump;
-asm
-  .noframe
-  pop rax
-  sub rsp, $20
-  jmp rax
-end;
-}
-
-{
-procedure HookJump;
-asm
-  .noframe
-  pop r10
-  mov rax, qword ptr[rsp] // push rbp again
-  push rax
-
-  lea rax, HookEpilogue
-  mov qword ptr[rsp+8], rax // mov new address as return
-
-  mov rax, qword ptr[rsp+16]
-
-  // Whatever it needs to be done do it here
-  sub rsp, $20
-
-
-  jmp r10
-end;
-}
-
 procedure HookJump;
 asm
   .noframe
   pop r10 // This is where we are called from
 
-  mov rax, qword ptr[rsp+8]
+  //mov rax, qword ptr[rsp+8]
+  mov rax, qword ptr[rsp]
   mov qword ptr[EpilogueJump], rax // save the old return address
 
   lea rax, HookEpilogue
-  mov qword ptr[rsp+8], rax // mov new address as return
+  mov qword ptr[rsp], rax // mov new address as return
 
   // Whatever it needs to be done do it here
-  sub rsp, $40
+  //sub rsp, $40
 
-  jmp r10 // Go back where we were called
+  jmp qword ptr [ExecutableBufferPtr]
+
+  //jmp r10 // Go back where we were called
 end;
 
 procedure SerializeDebugInfo(Item: TJclDebugInfoSource);
@@ -160,6 +134,7 @@ var
   strSearchModule : String;
   nSearchStart : Cardinal;
   nSearchEnd   : Cardinal;
+  pMem : Pointer;
 begin
   strSearchModule := 'AntiPessimizer.dpr';
   nSearchStart := 0;
@@ -185,6 +160,8 @@ begin
         end;
 
       VirtualProtect(Pointer($401000 + nSearchStart), nSearchEnd - nSearchStart, PAGE_EXECUTE_READWRITE, nOldProtect);
+      VirtualProtect(Pointer(@ExecutableBuffer[0]), Sizeof(ExecutableBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
+      ExecutableBufferPtr := Pointer(@ExecutableBuffer[0]);
 
       for nIndex := 0 to Image.TD32Scanner.ModuleCount-1 do
         begin
@@ -213,8 +190,20 @@ begin
           if ContainsText(strName, 'TestProc') then
             begin
               Writeln('Proc=' + Image.TD32Scanner.Names[procInfo.NameIndex] + ' Offset=' + IntToStr(nOffset));
-              PByte($400000 + nOffset + $1001)^ := $E8;
-              PCardinal($400000 + nOffset + $1002)^ := Cardinal(Int64(@HookJump) - Int64($400000 + nOffset + $1006));
+              ExecutableBuffer[0] := PByte($400000 + nOffset + $1000)^;
+              ExecutableBuffer[1] := PByte($400000 + nOffset + $1001)^;
+              ExecutableBuffer[2] := PByte($400000 + nOffset + $1002)^;
+              ExecutableBuffer[3] := PByte($400000 + nOffset + $1003)^;
+              ExecutableBuffer[4] := PByte($400000 + nOffset + $1004)^;
+              ExecutableBuffer[5] := $41; // jmp r10
+              ExecutableBuffer[6] := $ff;
+              ExecutableBuffer[7] := $e2;
+
+              PByte($400000 + nOffset + $1000)^ := $E8;
+              PCardinal($400000 + nOffset + $1001)^ := Cardinal(Int64(@HookJump) - Int64($400000 + nOffset + $1005));
+
+              //PByte($400000 + nOffset + $1001)^ := $E8;
+              //PCardinal($400000 + nOffset + $1002)^ := Cardinal(Int64(@HookJump) - Int64($400000 + nOffset + $1006));
             end;
         end;
     end;
@@ -224,19 +213,11 @@ procedure TestFunction;
 var
   DebugInfoList : TJclDebugInfoList;
   Item : TJclDebugInfoSource;
-
   tc : TestClass;
 begin
-  GetMem(Code, 4096);
-
-  DebugInfoList := TJclDebugInfoList.Create;
   Item := CreateDebugInfoWithTD32(CachedModuleFromAddr(@TestFunction));
   if Item <> nil then
-    begin
-      //DebugInfoList.Add(Item);
-      SerializeDebugInfo(Item);
-      //DebugInfoList.Free;
-    end;
+    SerializeDebugInfo(Item);
 
   tc := TestClass.Create;
   Writeln('Proc=' + IntToStr(tc.TestProc));
