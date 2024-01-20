@@ -2,13 +2,22 @@ program AntiPessimizer;
 {$APPTYPE CONSOLE}
 {$R *.res}
 uses
-  System.SysUtils, Windows, System.Generics.Collections, JCLDebug, JclSysinfo, RTTI, JclTD32, System.Classes, StrUtils;
+  System.SysUtils,
+  Windows,
+  System.Generics.Collections,
+  JCLDebug,
+  JclSysinfo,
+  RTTI,
+  JclTD32,
+  System.Classes,
+  StrUtils,
+  Udis86 in 'Udis86.pas';
+
 var
   FClockFrequency : Int64;
   g_InfoSourceClassList : TList = nil;
-  Code : Pointer;
 
-  ExecutableBuffer : array [0..256] of Byte;
+  ExecutableBuffer : array [0..31] of Byte;
   ExecutableBufferPtr : Pointer;
 
 type
@@ -104,7 +113,8 @@ asm
   .noframe
   pop r10 // This is where we are called from
 
-  //mov rax, qword ptr[rsp+8]
+  mov r11, rax
+
   mov rax, qword ptr[rsp]
   mov qword ptr[EpilogueJump], rax // save the old return address
 
@@ -112,11 +122,8 @@ asm
   mov qword ptr[rsp], rax // mov new address as return
 
   // Whatever it needs to be done do it here
-  //sub rsp, $40
 
-  jmp qword ptr [ExecutableBufferPtr]
-
-  //jmp r10 // Go back where we were called
+  jmp r11
 end;
 
 procedure SerializeDebugInfo(Item: TJclDebugInfoSource);
@@ -134,6 +141,8 @@ var
   strSearchModule : String;
   nSearchStart : Cardinal;
   nSearchEnd   : Cardinal;
+  nToSave      : Cardinal;
+  pProcAddr    : PByte;
   pMem : Pointer;
 begin
   strSearchModule := 'AntiPessimizer.dpr';
@@ -190,20 +199,25 @@ begin
           if ContainsText(strName, 'TestProc') then
             begin
               Writeln('Proc=' + Image.TD32Scanner.Names[procInfo.NameIndex] + ' Offset=' + IntToStr(nOffset));
-              ExecutableBuffer[0] := PByte($400000 + nOffset + $1000)^;
-              ExecutableBuffer[1] := PByte($400000 + nOffset + $1001)^;
-              ExecutableBuffer[2] := PByte($400000 + nOffset + $1002)^;
-              ExecutableBuffer[3] := PByte($400000 + nOffset + $1003)^;
-              ExecutableBuffer[4] := PByte($400000 + nOffset + $1004)^;
-              ExecutableBuffer[5] := $41; // jmp r10
-              ExecutableBuffer[6] := $ff;
-              ExecutableBuffer[7] := $e2;
+              pProcAddr := PByte($400000 + nOffset + $1000);
 
-              PByte($400000 + nOffset + $1000)^ := $E8;
-              PCardinal($400000 + nOffset + $1001)^ := Cardinal(Int64(@HookJump) - Int64($400000 + nOffset + $1005));
+              nToSave := UdisDisasmAtLeast(PByte($400000 + nOffset + $1000), nSize, 15);
 
-              //PByte($400000 + nOffset + $1001)^ := $E8;
-              //PCardinal($400000 + nOffset + $1002)^ := Cardinal(Int64(@HookJump) - Int64($400000 + nOffset + $1006));
+              if (nToSave >= 15) and (nToSave <= Length(ExecutableBuffer)) then
+                begin
+                  CopyMemory(@ExecutableBuffer[0], pProcAddr, nToSave);
+                  ExecutableBuffer[nToSave + 0] := $41; // jmp r10
+                  ExecutableBuffer[nToSave + 1] := $ff;
+                  ExecutableBuffer[nToSave + 2] := $e2;
+
+                  // mov rax imm64
+                  // jmp HookJump
+                  pProcAddr[0] := $48;  // 1 -> 1
+                  pProcAddr[1] := $B8;  // 2 -> 2
+                  PUint64(pProcAddr + 2)^ := Uint64(@ExecutableBuffer[0]); // 8 -> 10
+                  pProcAddr[$A] := $E8; // 1 -> 11
+                  PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4)); // 4 -> 15
+                end;
             end;
         end;
     end;
