@@ -161,11 +161,9 @@ var
   nSearchStart : Cardinal;
   nSearchEnd   : Cardinal;
 begin
-  strSearchModule := 'Profiler.dpr';
+  strSearchModule := 'AntiPessimizer.dpr';
   nSearchStart := 0;
   nSearchEnd := 0;
-
-  VirtualProtect(Pointer($400000), 1024 * 1024 * 4, PAGE_EXECUTE_READWRITE, nOldProtect);
 
   if Item is TJclDebugInfoTD32 then
     begin
@@ -176,14 +174,18 @@ begin
           Writeln('Source=' + Image.TD32Scanner.Names[srcModule.NameIndex]);
           for nSeg := 0 to srcModule.SegmentCount-1 do
             begin
+              Writeln(Format('  %x -> %x', [srcModule.Segment[nSeg].StartOffset, srcModule.Segment[nSeg].EndOffset]));
               if ContainsText(Image.TD32Scanner.Names[srcModule.NameIndex], strSearchModule) then
                 begin
-                  Writeln(Format('  %x -> %x', [srcModule.Segment[nSeg].StartOffset, srcModule.Segment[nSeg].EndOffset]));
+
                   nSearchStart := srcModule.Segment[nSeg].StartOffset;
                   nSearchEnd   := srcModule.Segment[nSeg].EndOffset;
                 end;
             end;
         end;
+
+      VirtualProtect(Pointer($401000 + nSearchStart), nSearchEnd - nSearchStart, PAGE_EXECUTE_READWRITE, nOldProtect);
+
       for nIndex := 0 to Image.TD32Scanner.ModuleCount-1 do
         begin
           modInfo := Image.TD32Scanner.Modules[nIndex];
@@ -200,9 +202,13 @@ begin
           if (nOffset >= nSearchStart) and ((nOffset + nSize) <= nSearchEnd) then
             begin
               Writeln('Proc=' + Image.TD32Scanner.Names[procInfo.NameIndex] + ' Offset=' + IntToStr(nOffset) +
-                Format('FirstBytes= %x, %x, %x, %x', [PByte($400000 + nOffset + $1000)^, PByte($400000 + nOffset + $1001)^, PByte($400000 + nOffset + $1002)^, PByte($400000 + nOffset + $1003)^, PByte($400000 + nOffset + $1004)^]));
+                Format('FirstBytes= %x, %x, %x, %x', [
+                  PByte($400000 + nOffset + $1000)^,
+                  PByte($400000 + nOffset + $1001)^,
+                  PByte($400000 + nOffset + $1002)^,
+                  PByte($400000 + nOffset + $1003)^,
+                  PByte($400000 + nOffset + $1004)^]));
             end;
-
 
           if ContainsText(strName, 'TestProc') then
             begin
@@ -227,11 +233,10 @@ begin
   Item := CreateDebugInfoWithTD32(CachedModuleFromAddr(@TestFunction));
   if Item <> nil then
     begin
-      DebugInfoList.Add(Item);
+      //DebugInfoList.Add(Item);
       SerializeDebugInfo(Item);
-      DebugInfoList.Free;
+      //DebugInfoList.Free;
     end;
-  TestJump;
 
   tc := TestClass.Create;
   Writeln('Proc=' + IntToStr(tc.TestProc));
