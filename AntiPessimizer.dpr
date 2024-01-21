@@ -27,6 +27,12 @@ type
   TestClass = class(TestBase)
     function TestProc: Integer; override;
   end;
+  TAnchor = record
+    nStart : Int64;
+    nElapsed : Int64;
+    nHitCount : Int64;
+    strName : String;
+  end;
 
 function TestBase.TestProc: Integer;
 begin
@@ -37,6 +43,7 @@ function TestClass.TestProc: Integer;
 begin
   try
     Writeln('test');
+    Sleep(100);
     Result := 34;//PInteger(0)^;
   except
     Result := 22;
@@ -100,10 +107,40 @@ end;
 
 var
   EpilogueJump : Pointer;
+  AtAddr       : Pointer;
+  g_dcFunctions : TDictionary<Pointer, TAnchor>;
+
+procedure SaveTimeStart(pAddr : Pointer);
+var
+  aValue : TAnchor;
+begin
+  if g_dcFunctions.TryGetValue(pAddr, aValue) then
+    begin
+      aValue.nStart := GetRTClock;
+      Inc(aValue.nHitCount);
+      g_dcFunctions.AddOrSetValue(pAddr, aValue);
+    end;
+end;
+
+procedure SaveTimeEnd(pAddr : Pointer);
+var
+  aValue : TAnchor;
+begin
+  if g_dcFunctions.TryGetValue(pAddr, aValue) then
+    begin
+      aValue.nElapsed := aValue.nElapsed + GetRTClock - aValue.nStart;
+      g_dcFunctions.AddOrSetValue(pAddr, aValue);
+    end;
+end;
 
 procedure HookEpilogue;
 asm
   .noframe
+  sub rsp, 32
+  mov rcx, AtAddr
+  call SaveTimeEnd
+  add rsp, 32
+
   mov rcx, qword ptr[EpilogueJump] // Use rcx since rax is the return value
   jmp rcx
 end;
@@ -111,17 +148,46 @@ end;
 procedure HookJump;
 asm
   .noframe
-  pop r10 // This is where we are called from
 
   mov r11, rax
 
-  mov rax, qword ptr[rsp]
+  mov rax, qword ptr[rsp+8]
+  mov r10, r11
+  shl r11, 8
+  shr r11, 8
+  shr r10, 56
+
   mov qword ptr[EpilogueJump], rax // save the old return address
 
   lea rax, HookEpilogue
-  mov qword ptr[rsp], rax // mov new address as return
+  mov qword ptr[rsp+8], rax // mov new address as return
+
+  pop rax  // This is where we are called from
 
   // Whatever it needs to be done do it here
+    // Naive implementation for now
+    push rcx
+    push rdx
+    push r8
+    push r9
+    push r11
+
+    mov rcx, rax  // rax is the base address of the function called after executing the first 15 bytes
+    sub rcx, 15   // rcx here is the base address of the called function
+    mov AtAddr, rcx
+    add r10, rax  // go back to the position after the buffered execution
+    push r10
+
+    sub rsp, 32
+    call SaveTimeStart
+    add rsp, 32
+
+    pop r10
+    pop r11
+    pop r9
+    pop r8
+    pop rdx
+    pop rcx
 
   jmp r11
 end;
@@ -143,11 +209,14 @@ var
   nSearchEnd   : Cardinal;
   nToSave      : Cardinal;
   pProcAddr    : PByte;
+  aAnchor      : TAnchor;
   pMem : Pointer;
 begin
   strSearchModule := 'AntiPessimizer.dpr';
   nSearchStart := 0;
   nSearchEnd := 0;
+
+  g_dcFunctions := TDictionary<Pointer, TAnchor>.Create;
 
   if Item is TJclDebugInfoTD32 then
     begin
@@ -198,7 +267,8 @@ begin
 
           if ContainsText(strName, 'TestProc') then
             begin
-              Writeln('Proc=' + Image.TD32Scanner.Names[procInfo.NameIndex] + ' Offset=' + IntToStr(nOffset));
+
+              Writeln('Proc=' + strName + ' Offset=' + IntToStr(nOffset));
               pProcAddr := PByte($400000 + nOffset + $1000);
 
               nToSave := UdisDisasmAtLeast(PByte($400000 + nOffset + $1000), nSize, 15);
@@ -210,11 +280,18 @@ begin
                   ExecutableBuffer[nToSave + 1] := $ff;
                   ExecutableBuffer[nToSave + 2] := $e2;
 
+                  aAnchor.nStart := 0;
+                  aAnchor.nElapsed := 0;
+                  aAnchor.nHitCount := 0;
+                  aAnchor.strName := strName;
+                  g_dcFunctions.AddOrSetValue(pProcAddr, aAnchor);
+
                   // mov rax imm64
                   // jmp HookJump
                   pProcAddr[0] := $48;  // 1 -> 1
                   pProcAddr[1] := $B8;  // 2 -> 2
                   PUint64(pProcAddr + 2)^ := Uint64(@ExecutableBuffer[0]); // 8 -> 10
+                  pProcAddr[9] := Byte(nToSave - 15);  // 2 -> 2
                   pProcAddr[$A] := $E8; // 1 -> 11
                   PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4)); // 4 -> 15
                 end;
@@ -230,18 +307,36 @@ var
   tc : TestClass;
 begin
   Item := CreateDebugInfoWithTD32(CachedModuleFromAddr(@TestFunction));
+  tc := TestClass.Create;
+
   if Item <> nil then
     SerializeDebugInfo(Item);
 
-  tc := TestClass.Create;
-  Writeln('Proc=' + IntToStr(tc.TestProc));
+  tc.TestProc;
+  tc.TestProc;
+end;
+
+procedure DumpDictionary;
+var
+  Item : TPair<Pointer, TAnchor>;
+begin
+  for Item in g_dcFunctions do
+    begin
+      if Item.Value.nElapsed > 0 then
+        Writeln(
+          'Name=' + Item.Value.strName +
+          ' Addr=' + Uint64(Item.Key).ToString +
+          ' HitCount=' + IntToStr(Item.Value.nHitCount) +
+          ' Elapsed=' + (Item.Value.nElapsed / 1000000.0).ToString + ' ms.');
+    end;
 end;
 
 procedure TimeFunct;
 begin
   var nStart := GetRTClock;
   TestFunction;
-  Writeln('Elapsed=' + ((GetRTClock - nStart) / 1000000.0).ToString);
+  DumpDictionary;
+  //Writeln('Elapsed=' + ((GetRTClock - nStart) / 1000000.0).ToString);
 end;
 
 begin
