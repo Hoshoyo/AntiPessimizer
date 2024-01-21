@@ -11,13 +11,34 @@ uses
   JclTD32,
   System.Classes,
   StrUtils,
-  Udis86 in 'Udis86.pas';
+  Udis86 in 'Udis86.pas',
+  ExeLoader in 'ExeLoader.pas';
 
 var
   FClockFrequency : Int64;
   g_InfoSourceClassList : TList = nil;
+  g_LastHookedJump : PPointer = nil;
+  g_StartRdtsc : Uint64;
+  g_GlobalHitCount : Integer = 0;
+  g_SumHookTime : UInt64;
 
 type
+  PEXCEPTION_RECORD = ^EXCEPTION_RECORD;
+  EXCEPTION_RECORD = record
+    ExceptionCode    : DWORD;
+    ExceptionFlags   : DWORD;
+    ExceptionRecord  : PEXCEPTION_RECORD;
+    ExceptionAddress : PVOID;
+    NumberParameters : DWORD;
+    ExceptionInformation : array [0..EXCEPTION_MAXIMUM_PARAMETERS-1] of ULONG_PTR;
+  end;
+
+  EXCEPTION_POINTERS = record
+    ExceptionRecord : PEXCEPTION_RECORD;
+    ContextRecord   : PCONTEXT;
+  end;
+  PEXCEPTION_POINTERS = ^EXCEPTION_POINTERS;
+
   TestBase = class
     function TestProc: Integer; virtual;
   end;
@@ -42,13 +63,10 @@ begin
 end;
 function TestClass.TestProc: Integer;
 begin
-  try
-    Writeln('test');
-    Sleep(100);
-    Result := 34;//PInteger(0)^;
-  except
-    Result := 22;
-  end;
+  Writeln('test');
+  Sleep(100);
+  Result := 32;//PInteger(0)^;
+  Writeln('Crash!');
 end;
 
 function GetRTClock: Int64;
@@ -146,11 +164,28 @@ asm
   jmp rcx
 end;
 
+procedure HookEpilogueException;
+asm
+  .noframe
+  sub rsp, 32
+  mov rcx, AtAddr
+  call SaveTimeEnd
+  add rsp, 32
+end;
+
 procedure HookJump;
 asm
   .noframe
-
   mov r11, rax
+
+{$IFDEF MEASURE_HOOKING_TIME}
+  mov r10, rdx
+  rdtsc
+  shl rdx, 32
+  or rax, rdx
+  mov g_StartRdtsc, rax
+  mov rdx, r10
+{$ENDIF}
 
   mov rax, qword ptr[rsp+8]
   mov r10, r11
@@ -164,6 +199,8 @@ asm
   mov qword ptr[rsp+8], rax // mov new address as return
 
   pop rax  // This is where we are called from
+
+  mov g_LastHookedJump, rsp
 
   // Whatever it needs to be done do it here
     // Naive implementation for now
@@ -189,6 +226,18 @@ asm
     pop r8
     pop rdx
     pop rcx
+
+{$IFDEF MEASURE_HOOKING_TIME}
+  push rdx
+  rdtsc
+  shl rdx, 32
+  or rax, rdx
+  mov rdx, r11
+  add g_GlobalHitCount, 1
+  sub rax, g_StartRdtsc
+  add g_SumHookTime, rax
+  pop rdx
+{$ENDIF}
 
   jmp r11
 end;
@@ -227,7 +276,7 @@ begin
           Writeln('Source=' + Image.TD32Scanner.Names[srcModule.NameIndex]);
           for nSeg := 0 to srcModule.SegmentCount-1 do
             begin
-              Writeln(Format('  %x -> %x', [srcModule.Segment[nSeg].StartOffset, srcModule.Segment[nSeg].EndOffset]));
+              //Writeln(Format('  %x -> %x', [srcModule.Segment[nSeg].StartOffset, srcModule.Segment[nSeg].EndOffset]));
               if ContainsText(Image.TD32Scanner.Names[srcModule.NameIndex], strSearchModule) then
                 begin
 
@@ -293,13 +342,32 @@ begin
     end;
 end;
 
+function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
+begin
+  HookEpilogueException;
+  g_LastHookedJump^ := EpilogueJump;
+end;
+
+var
+  AddVectoredExceptionHandler : function (nFirst : ULONG; pHandler : Pointer): PVOID; stdcall;
+  hKernel : THandle;
+
 procedure TestFunction;
 var
   Item : TJclDebugInfoSource;
   tc : TestClass;
   tb : TestBase;
 begin
-  Item := CreateDebugInfoWithTD32(CachedModuleFromAddr(@TestFunction));
+  hKernel := LoadLibrary('kernel32.dll');
+  if hKernel <> 0 then
+    begin
+      @AddVectoredExceptionHandler := GetProcAddress(hKernel, 'AddVectoredExceptionHandler');
+      if @AddVectoredExceptionHandler <> nil then      
+        AddVectoredExceptionHandler(1, @ExceptionHandler);
+    end;
+    
+  Item := CreateDebugInfoWithTD32(GetModuleHandle(nil));    
+  //Item := CreateDebugInfoWithTD32(CachedModuleFromAddr(@TestFunction));
   tc := TestClass.Create;
   tb := TestBase.Create;
 
@@ -308,8 +376,22 @@ begin
   if Item <> nil then
     SerializeDebugInfo(Item);
 
-  tc.TestProc;
-  tb.TestProc;
+  try
+    tc.TestProc;
+    tb.TestProc;
+    tc.TestProc;
+    tc.TestProc;
+    tc.TestProc;
+    tc.TestProc;
+    tc.TestProc;
+    tc.TestProc;
+    tc.TestProc;
+  except
+    Writeln('Exception bro!');
+  end;
+
+  if g_GlobalHitCount > 0 then  
+    Writeln('Time took:' + (g_SumHookTime/g_GlobalHitCount).ToString);
 end;
 
 procedure DumpDictionary;
