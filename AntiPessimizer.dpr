@@ -17,8 +17,6 @@ var
   FClockFrequency : Int64;
   g_InfoSourceClassList : TList = nil;
 
-  ExecutableBuffer : array [0..63] of Byte;
-
 type
   TestBase = class
     function TestProc: Integer; virtual;
@@ -26,11 +24,15 @@ type
   TestClass = class(TestBase)
     function TestProc: Integer; override;
   end;
+
+  TAnchorBuffer = array [0..63] of Byte;
+  PAnchorBuffer = ^TAnchorBuffer;
   TAnchor = record
     nStart : Int64;
     nElapsed : Int64;
     nHitCount : Int64;
     strName : String;
+    pExecBuffer : PAnchorBuffer;
   end;
 
 function TestBase.TestProc: Integer;
@@ -236,7 +238,6 @@ begin
         end;
 
       VirtualProtect(Pointer($401000 + nSearchStart), nSearchEnd - nSearchStart, PAGE_EXECUTE_READWRITE, nOldProtect);
-      VirtualProtect(Pointer(@ExecutableBuffer[0]), Sizeof(ExecutableBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
       for nIndex := 0 to Image.TD32Scanner.ModuleCount-1 do
         begin
@@ -267,25 +268,25 @@ begin
               Writeln('Proc=' + strName + ' Offset=' + IntToStr(nOffset));
               pProcAddr := PByte($400000 + nOffset + $1000);
 
-              aAnchor.nStart := 0;
-              aAnchor.nElapsed := 0;
-              aAnchor.nHitCount := 0;
+              ZeroMemory(@aAnchor, sizeof(aAnchor));
               aAnchor.strName := strName;
+              GetMem(aAnchor.pExecBuffer, sizeof(TAnchorBuffer));
+              VirtualProtect(Pointer(@aAnchor.pExecBuffer[0]), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
               g_dcFunctions.AddOrSetValue(pProcAddr, aAnchor);
 
-              nToSave := UdisDisasmAtLeastAndPatchRelatives(pProcAddr, nSize, 15, @ExecutableBuffer[0], sizeof(ExecutableBuffer));
+              nToSave := UdisDisasmAtLeastAndPatchRelatives(pProcAddr, nSize, 15, @aAnchor.pExecBuffer[0], sizeof(TAnchorBuffer));
 
-              if (nToSave >= 15) and (nToSave <= Length(ExecutableBuffer)) then
+              if (nToSave >= 15) and (nToSave <= Cardinal(Length(aAnchor.pExecBuffer^))) then
                 begin
+                  // 15 bytes in total
                   // mov rax imm64
                   // jmp HookJump
-                  pProcAddr[0] := $48;  // 1 -> 1
-                  pProcAddr[1] := $B8;  // 2 -> 2
-                  PUint64(pProcAddr + 2)^ := Uint64(@ExecutableBuffer[0]); // 8 -> 10
-                  pProcAddr[9] := Byte(nToSave - 15);  // 2 -> 2
-                  pProcAddr[$A] := $E8; // 1 -> 11
-                  PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4)); // 4 -> 15
-                  Break; // @Temporary
+                  pProcAddr[0] := $48;
+                  pProcAddr[1] := $B8;
+                  PUint64(pProcAddr + 2)^ := Uint64(@aAnchor.pExecBuffer[0]);
+                  pProcAddr[9] := Byte(nToSave - 15);
+                  pProcAddr[$A] := $E8;
+                  PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4));
                 end;
             end;
         end;
@@ -302,12 +303,12 @@ begin
   tc := TestClass.Create;
   tb := TestBase.Create;
 
-  tb.TestProc;
+  //tb.TestProc;
 
   if Item <> nil then
     SerializeDebugInfo(Item);
 
-  //tc.TestProc;
+  tc.TestProc;
   tb.TestProc;
 end;
 
