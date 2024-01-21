@@ -1,5 +1,7 @@
 unit ExeLoader;
 
+//{$DEFINE MEASURE_HOOKING_TIME 1}
+
 interface
 uses
   Udis86,
@@ -21,9 +23,11 @@ var
   g_dcFunctions : TDictionary<Pointer, TAnchor>;
 
   procedure LoadModuleDebugInfoForCurrentModule;
+  function ProfilerCycleTime: String;
 
 implementation
 uses
+  CoreProfiler,
   JclTD32,
   JCLDebug,
   RTTI,
@@ -59,45 +63,11 @@ var
   EpilogueJump : Pointer;
   AtAddr       : Pointer;
 
-
-function GetRTClock: Int64;
-var
-  nClock : Int64;
-begin
-  if QueryPerformanceCounter(nClock)
-    then Result := Round(nClock / FClockFrequency * 1000 * 1000 * 1000)
-    else Result := 0;
-end;
-
-procedure SaveTimeStart(pAddr : Pointer);
-var
-  aValue : TAnchor;
-begin
-  if g_dcFunctions.TryGetValue(pAddr, aValue) then
-    begin
-      aValue.nStart := GetRTClock;
-      Inc(aValue.nHitCount);
-      g_dcFunctions.AddOrSetValue(pAddr, aValue);
-    end;
-end;
-
-procedure SaveTimeEnd(pAddr : Pointer);
-var
-  aValue : TAnchor;
-begin
-  if g_dcFunctions.TryGetValue(pAddr, aValue) then
-    begin
-      aValue.nElapsed := aValue.nElapsed + GetRTClock - aValue.nStart;
-      g_dcFunctions.AddOrSetValue(pAddr, aValue);
-    end;
-end;
-
 procedure HookEpilogue;
 asm
   .noframe
   sub rsp, 32
-  mov rcx, AtAddr
-  call SaveTimeEnd
+  call ExitProfileBlock
   add rsp, 32
 
   mov rcx, qword ptr[EpilogueJump] // Use rcx since rax is the return value
@@ -108,8 +78,7 @@ procedure HookEpilogueException;
 asm
   .noframe
   sub rsp, 32
-  mov rcx, AtAddr
-  call SaveTimeEnd
+  call ExitProfileBlock
   add rsp, 32
 end;
 
@@ -157,7 +126,7 @@ asm
     push r10
 
     sub rsp, 32
-    call SaveTimeStart
+    call EnterProfileBlock
     add rsp, 32
 
     pop r10
@@ -180,6 +149,13 @@ asm
 {$ENDIF}
 
   jmp r11
+end;
+
+function ProfilerCycleTime: String;
+begin
+{$IFDEF MEASURE_HOOKING_TIME}
+  Result := (g_SumHookTime / g_GlobalHitCount).ToString;
+{$ENDIF}
 end;
 
 function GetBase(obj: TObject): TJclPeBorTD32Image;

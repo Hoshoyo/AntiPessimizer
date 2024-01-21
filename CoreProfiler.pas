@@ -3,7 +3,7 @@ unit CoreProfiler;
 interface
 
 const
-  c_ProfilerStackSize = 1024*64;
+  c_ProfilerStackSize = 1024*64;  // 64 kB
 
 type
   TProfileBucket = record
@@ -23,7 +23,7 @@ type
   THashEntry = record
     nHash    : Int64;
     nKey     : Pointer;
-    prAnchor : TProfileAnchor;
+    prAnchor : {array [0..3] of }TProfileAnchor;
   end;
 
   TProfileBlock = record
@@ -38,6 +38,10 @@ type
     pbBlocks : array [0..c_ProfilerStackSize-1] of TProfileBlock;
     nAtIndex : Integer;
   end;
+
+  procedure EnterProfileBlock(nAddr : Pointer);
+  procedure ExitProfileBlock;
+  procedure PrintProfilerResults;
 
 implementation
 uses
@@ -119,24 +123,6 @@ begin
   Result := (nCycles / g_nCyclesPerSecond) * 1000.0;
 end;
 
-procedure PrintProfilerResults;
-var
-  nIndex   : Integer;
-  prAnchor : PProfileAnchor;
-begin
-  for nIndex := 0 to Length(g_TableProfiler)-1 do
-    begin
-      if g_TableProfiler[nIndex].prAnchor.nHitCount > 0 then
-        begin
-          prAnchor := @g_TableProfiler[nIndex].prAnchor;
-          Writeln('Addr ' + Uint64(g_TableProfiler[nIndex].nKey).ToString + #9 +
-            ' Inclusive=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
-            ' Exclusive=' + CyclesToMs(prAnchor.nElapsedExclusive).ToString + ' ms.' +
-            ' HitCount='  + prAnchor.nHitCount.ToString);
-        end;
-    end;
-end;
-
 function GetRTClock(nFreq : Int64): Int64;
 var
   nClock : Int64;
@@ -164,26 +150,25 @@ begin
   g_nCyclesPerSecond := (nTimeStamp - nStartTimeStamp) * 10;
 end;
 
-procedure TestHash;
+procedure PrintProfilerResults;
 var
-  nIndex: Integer;
+  nIndex   : Integer;
+  prAnchor : PProfileAnchor;
 begin
   CallibrateTimeStamp;
-  InitializeGlobalProfilerTable(1024);
-
-  EnterProfileBlock(Pointer($123));
-    Sleep(500);
-    EnterProfileBlock(Pointer($1234));
-      Sleep(1000);
-      EnterProfileBlock(Pointer($123));
-        Sleep(300);        
-      ExitProfileBlock;
-    ExitProfileBlock;
-  ExitProfileBlock;
-
-  PrintProfilerResults;
+  for nIndex := 0 to Length(g_TableProfiler)-1 do
+    begin
+      if g_TableProfiler[nIndex].prAnchor.nHitCount > 0 then
+        begin
+          prAnchor := @g_TableProfiler[nIndex].prAnchor;
+          Writeln('Addr ' + Uint64(g_TableProfiler[nIndex].nKey).ToString + #9 +            
+            ' Exclusive=' + CyclesToMs(prAnchor.nElapsedExclusive).ToString + ' ms.' +
+            ' w/children=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
+            ' HitCount='  + prAnchor.nHitCount.ToString);
+        end;
+    end;
 end;
 
 initialization
-  TestHash;
+  InitializeGlobalProfilerTable(1024);
 end.

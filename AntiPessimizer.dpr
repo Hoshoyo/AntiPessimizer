@@ -11,7 +11,9 @@ uses
   JclTD32,
   System.Classes,
   StrUtils,
-  ExeLoader in 'ExeLoader.pas';
+  ExeLoader in 'ExeLoader.pas',
+  CoreProfiler in 'CoreProfiler.pas',
+  Utils in 'Utils.pas';
 
 type
   TestBase = class
@@ -29,9 +31,7 @@ end;
 function TestClass.TestProc: Integer;
 begin
   Writeln('test');
-  Sleep(100);
-  Result := 32;//PInteger(0)^;
-  Writeln('Crash!');
+  Result := 32;
 end;
 
 // ------------------------------------------------------
@@ -48,48 +48,34 @@ procedure TestFunction;
 var
   tc : TestClass;
   tb : TestBase;
+  nIndex: Integer;
 begin
   LoadModuleDebugInfoForCurrentModule;
 
   tc := TestClass.Create;
   tb := TestBase.Create;
 
-  try
-    tc.TestProc;
-    tb.TestProc;
-    tc.TestProc;
-    tc.TestProc;
-    tc.TestProc;
-    tc.TestProc;
-    tc.TestProc;
-    tc.TestProc;
-    tc.TestProc;
-  except
-    Writeln('Exception bro!');
-  end;
-end;
-
-procedure DumpDictionary;
-var
-  Item : TPair<Pointer, TAnchor>;
-begin
-  for Item in g_dcFunctions do
+  EnterProfileBlock(Pointer($123));
+  for nIndex := 0 to 10000 do
     begin
-      if Item.Value.nElapsed > 0 then
-        Writeln(
-          'Name=' + Item.Value.strName +
-          ' Addr=' + Uint64(Item.Key).ToString +
-          ' HitCount=' + IntToStr(Item.Value.nHitCount) +
-          ' Elapsed=' + (Item.Value.nElapsed / 1000000.0).ToString + ' ms.');
+      tc.TestProc;
+      tb.TestProc;
+      tc.TestProc;
+      tc.TestProc;
+      tc.TestProc;
+      tc.TestProc;
+      tc.TestProc;
+      tc.TestProc;
+      tc.TestProc;
     end;
+  ExitProfileBlock;
+  Writeln('Average cycles=' + ProfilerCycleTime);
 end;
 
 procedure TimeFunct;
 begin
-  //var nStart := GetRTClock;
   TestFunction;
-  DumpDictionary;
-  //Writeln('Elapsed=' + ((GetRTClock - nStart) / 1000000.0).ToString);
+  PrintProfilerResults;
 end;
 
 begin
