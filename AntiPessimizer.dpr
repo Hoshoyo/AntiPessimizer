@@ -17,8 +17,7 @@ var
   FClockFrequency : Int64;
   g_InfoSourceClassList : TList = nil;
 
-  ExecutableBuffer : array [0..31] of Byte;
-  ExecutableBufferPtr : Pointer;
+  ExecutableBuffer : array [0..63] of Byte;
 
 type
   TestBase = class
@@ -210,7 +209,6 @@ var
   nToSave      : Cardinal;
   pProcAddr    : PByte;
   aAnchor      : TAnchor;
-  pMem : Pointer;
 begin
   strSearchModule := 'AntiPessimizer.dpr';
   nSearchStart := 0;
@@ -239,7 +237,6 @@ begin
 
       VirtualProtect(Pointer($401000 + nSearchStart), nSearchEnd - nSearchStart, PAGE_EXECUTE_READWRITE, nOldProtect);
       VirtualProtect(Pointer(@ExecutableBuffer[0]), Sizeof(ExecutableBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
-      ExecutableBufferPtr := Pointer(@ExecutableBuffer[0]);
 
       for nIndex := 0 to Image.TD32Scanner.ModuleCount-1 do
         begin
@@ -267,25 +264,19 @@ begin
 
           if ContainsText(strName, 'TestProc') then
             begin
-
               Writeln('Proc=' + strName + ' Offset=' + IntToStr(nOffset));
               pProcAddr := PByte($400000 + nOffset + $1000);
 
-              nToSave := UdisDisasmAtLeast(PByte($400000 + nOffset + $1000), nSize, 15);
+              aAnchor.nStart := 0;
+              aAnchor.nElapsed := 0;
+              aAnchor.nHitCount := 0;
+              aAnchor.strName := strName;
+              g_dcFunctions.AddOrSetValue(pProcAddr, aAnchor);
+
+              nToSave := UdisDisasmAtLeastAndPatchRelatives(pProcAddr, nSize, 15, @ExecutableBuffer[0], sizeof(ExecutableBuffer));
 
               if (nToSave >= 15) and (nToSave <= Length(ExecutableBuffer)) then
                 begin
-                  CopyMemory(@ExecutableBuffer[0], pProcAddr, nToSave);
-                  ExecutableBuffer[nToSave + 0] := $41; // jmp r10
-                  ExecutableBuffer[nToSave + 1] := $ff;
-                  ExecutableBuffer[nToSave + 2] := $e2;
-
-                  aAnchor.nStart := 0;
-                  aAnchor.nElapsed := 0;
-                  aAnchor.nHitCount := 0;
-                  aAnchor.strName := strName;
-                  g_dcFunctions.AddOrSetValue(pProcAddr, aAnchor);
-
                   // mov rax imm64
                   // jmp HookJump
                   pProcAddr[0] := $48;  // 1 -> 1
@@ -294,6 +285,7 @@ begin
                   pProcAddr[9] := Byte(nToSave - 15);  // 2 -> 2
                   pProcAddr[$A] := $E8; // 1 -> 11
                   PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4)); // 4 -> 15
+                  Break; // @Temporary
                 end;
             end;
         end;
@@ -302,18 +294,21 @@ end;
 
 procedure TestFunction;
 var
-  DebugInfoList : TJclDebugInfoList;
   Item : TJclDebugInfoSource;
   tc : TestClass;
+  tb : TestBase;
 begin
   Item := CreateDebugInfoWithTD32(CachedModuleFromAddr(@TestFunction));
   tc := TestClass.Create;
+  tb := TestBase.Create;
+
+  tb.TestProc;
 
   if Item <> nil then
     SerializeDebugInfo(Item);
 
-  tc.TestProc;
-  tc.TestProc;
+  //tc.TestProc;
+  tb.TestProc;
 end;
 
 procedure DumpDictionary;
@@ -333,7 +328,7 @@ end;
 
 procedure TimeFunct;
 begin
-  var nStart := GetRTClock;
+  //var nStart := GetRTClock;
   TestFunction;
   DumpDictionary;
   //Writeln('Elapsed=' + ((GetRTClock - nStart) / 1000000.0).ToString);

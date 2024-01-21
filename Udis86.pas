@@ -82,7 +82,12 @@ type
   end;
 
   UdRec = record
-    udReserved : array [0..$188-1] of Byte;
+    inpHook : Pointer;
+    inpFile : Pointer;
+    pInpBuf : PByte;
+    nInpBufSize : Uint64;
+    nInpBufIndex : Uint64;
+    udReserved : array [0..$15F] of Byte;
     udOperand : array [0..2] of TUdOperand;
     nError   : Byte;
     pfxRex   : Byte;
@@ -766,6 +771,7 @@ var
   UdDisassemble    : function  (ud : PUdRec): Cardinal; stdcall;
 
   function UdisDisasmAtLeast(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal): Cardinal;
+  function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal): Cardinal;
 
 implementation
 
@@ -786,6 +792,104 @@ begin
     begin
       nBytesDisassembled := nBytesDisassembled + UdDisassemble(@ud);
     end;
+  Result := nBytesDisassembled;
+end;
+
+function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal): Cardinal;
+type
+  TRelToVal = record
+    ptrPatch    : Pointer;  // To be patched
+    nValue      : Uint64;
+    nInstrSize  : Integer;  // Size in bytes of the instruction
+    nOpSizeBits : Byte;     // Size in bits of the operand in the instruction
+    nSizeBits   : Byte;     // Size in bits of the data pointed by the operator
+  end;
+var
+  ud                 : UdRec;
+  nBytesDisassembled : Cardinal;
+  nInstrSize         : Cardinal;
+  nSizeBits          : Byte;
+  nOpSizeBits        : Byte;
+  nRelIdx            : Integer;
+  nOperand           : Integer;
+  nIndex             : Integer;
+  nAuxOffset         : Int64;
+  arPatch            : array [0..7] of TRelToVal;
+begin
+  UdInit(@ud);
+  UdSetMode(@ud, 64);
+  UdSetInputBuffer(@ud, pAt, nBufferSize);
+
+  nRelIdx := 0;
+  ZeroMemory(@arPatch[0], sizeof(arPatch));
+
+  nBytesDisassembled := 0;
+  while (nBytesDisassembled < nByteCountToDisasm) do
+    begin
+      nInstrSize := UdDisassemble(@ud);
+      nBytesDisassembled := nBytesDisassembled + nInstrSize;
+      Dec(nRelBufSize, nInstrSize);
+
+      CopyMemory(pRelBuffer, ud.pInpBuf + ud.nInpBufIndex - nInstrSize, nInstrSize);
+
+      for nOperand := 0 to High(ud.udOperand) do
+        begin
+          if ud.udOperand[nOperand].nBase = UD_R_RIP then
+            begin
+              nSizeBits := ud.udOperand[nOperand].nSize;
+              arPatch[nRelIdx].ptrPatch := pRelBuffer + nInstrSize - 4;
+              arPatch[nRelIdx].nSizeBits := nSizeBits;
+              arPatch[nRelIdx].nInstrSize := nInstrSize;
+              arPatch[nRelIdx].nOpSizeBits := 32;  // Always 32 bits for rip relative
+
+              // Copy the value to the new location
+              CopyMemory(@arPatch[nRelIdx].nValue, PByte(pAt) + nBytesDisassembled + ud.udOperand[1].lVal, nSizeBits div 8);
+              Inc(nRelIdx);
+            end;
+        end;
+
+      Inc(pRelBuffer, nInstrSize);
+    end;
+
+  // jmp r10 instruction to jump back to the function being called
+  if nRelBufSize >= 3 then
+    begin
+      pRelBuffer[0] := $41;
+      pRelBuffer[1] := $ff;
+      pRelBuffer[2] := $e2;
+      Dec(nRelBufSize, 3);
+      Inc(pRelBuffer, 3);
+    end
+  else
+    begin
+      // TODO(psv): Error, not enough size in the buffer for the jump back
+    end;
+
+  if nRelBufSize > 0 then
+    begin
+      for nIndex := 0 to nRelIdx-1 do
+        begin
+          nSizeBits := arPatch[nIndex].nSizeBits;
+          if nRelBufSize >= (nSizeBits div 8) then
+            begin
+              nAuxOffset := Int64(pRelBuffer) - (Int64(arPatch[nIndex].ptrPatch) + (arPatch[nIndex].nOpSizeBits div 8));
+
+              // Patch the instruction where the relative offset is with the new one
+              CopyMemory(arPatch[nIndex].ptrPatch, @nAuxOffset, arPatch[nIndex].nOpSizeBits div 8);
+
+              // Put the value where it needs to go to be loaded
+              CopyMemory(pRelBuffer, @arPatch[nIndex].nValue, arPatch[nIndex].nSizeBits div 8);
+
+              Inc(pRelBuffer, nSizeBits div 8);
+              Dec(nRelBufSize);
+            end;
+        end;
+    end
+  else
+    begin
+      // TODO(psv): Error, not enough size in the buffer for the relative jumps
+    end;
+
   Result := nBytesDisassembled;
 end;
 
