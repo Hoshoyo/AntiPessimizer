@@ -105,7 +105,6 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="Udis86.pas"/>
         <DCCReference Include="ExeLoader.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
