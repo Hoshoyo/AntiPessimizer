@@ -23,14 +23,19 @@ type
     function TestProc: Integer; override;
   end;
 
+procedure PrintAStatement;
+begin
+  Writeln('Hello World');
+end;
+
 function TestBase.TestProc: Integer;
 begin
-  Writeln('test base');
+  //Writeln('test base');
   Result := 33;
 end;
 function TestClass.TestProc: Integer;
 begin
-  Writeln('test');
+  //Writeln('test');
   Result := 32;
 end;
 
@@ -50,12 +55,9 @@ var
   tb : TestBase;
   nIndex: Integer;
 begin
-  LoadModuleDebugInfoForCurrentModule;
-
   tc := TestClass.Create;
   tb := TestBase.Create;
 
-  EnterProfileBlock(Pointer($123));
   for nIndex := 0 to 10000 do
     begin
       tc.TestProc;
@@ -68,18 +70,12 @@ begin
       tc.TestProc;
       tc.TestProc;
     end;
-  ExitProfileBlock;
-  Writeln('Average cycles=' + ProfilerCycleTime);
+  PrintAStatement;
 end;
 
-procedure TimeFunct;
 begin
   TestFunction;
   PrintProfilerResults;
-end;
-
-begin
-  TimeFunct;
 end.
 
 

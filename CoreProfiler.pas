@@ -222,7 +222,9 @@ begin
           if g_TableProfiler[nIndex][nIndex2].prAnchor.nHitCount > 0 then
             begin
               prAnchor := @g_TableProfiler[nIndex][nIndex2].prAnchor;
-              Writeln('Addr ' + Uint64(g_TableProfiler[nIndex][nIndex2].nKey).ToString + #9 +            
+              Writeln(
+                'Name=' + prAnchor.strName + #9 +
+                //' Addr ' + Uint64(g_TableProfiler[nIndex][nIndex2].nKey).ToString + #9 +            
                 ' Exclusive=' + CyclesToMs(prAnchor.nElapsedExclusive).ToString + ' ms.' +
                 ' w/children=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
                 ' HitCount='  + prAnchor.nHitCount.ToString);

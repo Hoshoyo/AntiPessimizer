@@ -174,9 +174,13 @@ var
   nOldProtect : DWORD;
   nToSave     : Cardinal;
 begin
+  //if strName = '_ZN14Antipessimizer12TestFunctionEv' then
+  //  Exit;  
+
   pAnchor := FindAnchor(pProcAddr);
   New(pExecBuffer);
   pAnchor.ptrExecBuffer := pExecBuffer;
+  pAnchor.strName := strName;
 
   VirtualProtect(Pointer(pExecBuffer), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
@@ -184,6 +188,7 @@ begin
 
   if (nToSave >= 15) and (nToSave <= Cardinal(Length(pExecBuffer^))) then
     begin
+      VirtualProtect(Pointer(pProcAddr), nSize, PAGE_EXECUTE_READWRITE, nOldProtect);
       // 15 bytes in total
       // mov rax imm64
       // jmp HookJump
@@ -434,21 +439,47 @@ begin
     end;
 end;
 
+procedure InstrumentMainModule;
+begin
+
+end;
+
 procedure LoadModuleDebugInfoForCurrentModule;
 var
   Item    : TJclDebugInfoSource;
+  Image   : TJclPeBorTD32Image;
   Module  : HMODULE;
   modInfo : MODULEINFO;
+  procInfo : TJclTD32ProcSymbolInfo;
+  pProcAddr : Pointer;
+  dcProcsByModule : TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
+  lstProcs : TList<TJclTD32ProcSymbolInfo>;
+  strName : String;
 begin
   Module := GetModuleHandle(nil);
   Item := CreateDebugInfoWithTD32(Module);
 
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
 
-  if Item <> nil then
-    ClassifyProcByModule(Item, Uint64(modInfo.lpBaseOfDll));
-    //ClassifyProcBySourceModule(Item, Uint64(modInfo.lpBaseOfDll));
-    //SerializeDebugInfo(Item, Uint64(modInfo.lpBaseOfDll));
+  if (Item <> nil) and (Item is TJclDebugInfoTD32) then
+    begin
+      Image := GetBase(Item);
+      dcProcsByModule := ClassifyProcByModule(Item, Uint64(modInfo.lpBaseOfDll));
+      //ClassifyProcBySourceModule(Item, Uint64(modInfo.lpBaseOfDll));
+      //SerializeDebugInfo(Item, Uint64(modInfo.lpBaseOfDll));
+
+      if dcProcsByModule.TryGetValue('AntiPessimizer', lstProcs) then
+        begin
+          for procInfo in lstProcs do
+            begin
+              pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
+              Image := GetBase(Item);
+              strName := Image.TD32Scanner.Names[procInfo.NameIndex];
+
+              InstrumentFunction(strName, pProcAddr, procInfo.Size);
+            end;                    
+        end;
+    end;    
 end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
@@ -470,5 +501,6 @@ end;
 
 initialization
   LoadVectoredExceptionHandling;
+  LoadModuleDebugInfoForCurrentModule;
 
 end.

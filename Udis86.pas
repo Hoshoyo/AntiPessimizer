@@ -816,6 +816,9 @@ var
   nAuxOffset         : Int64;
   arPatch            : array [0..7] of TRelToVal;
 begin
+  if nBufferSize < nByteCountToDisasm then
+    Exit(0);
+
   UdInit(@ud);
   UdSetMode(@ud, 64);
   UdSetInputBuffer(@ud, pAt, nBufferSize);
@@ -843,7 +846,7 @@ begin
               arPatch[nRelIdx].nOpSizeBits := 32;  // Always 32 bits for rip relative
 
               // Copy the value to the new location
-              CopyMemory(@arPatch[nRelIdx].nValue, PByte(pAt) + nBytesDisassembled + ud.udOperand[1].lVal, nSizeBits div 8);
+              CopyMemory(@arPatch[nRelIdx].nValue, PByte(pAt) + nBytesDisassembled + Integer(ud.udOperand[1].lVal), nSizeBits div 8);
               Inc(nRelIdx);
             end;
         end;
