@@ -16,6 +16,7 @@ type
     nElapsedExclusive : UInt64;
     nElapsedInclusive : UInt64;
     nHitCount         : UInt64;
+    ptrExecBuffer     : Pointer;
     strName           : String;
   end;
   PProfileAnchor = ^TProfileAnchor;
@@ -23,12 +24,16 @@ type
   THashEntry = record
     nHash    : Int64;
     nKey     : Pointer;
-    prAnchor : {array [0..3] of }TProfileAnchor;
+    prAnchor : TProfileAnchor;
   end;
+  PHashEntry = ^THashEntry;
+  THashEntryArr = array [0..3] of THashEntry;
 
   TProfileBlock = record
     nParentIndex       : Integer;
     nAnchorIndex       : Integer;
+    nSecondIndex       : Integer;
+    nParentSecondIndex : Integer;
     nStartTime         : Uint64;
     nPrevTimeInclusive : Uint64;
   end;
@@ -42,6 +47,7 @@ type
   procedure EnterProfileBlock(nAddr : Pointer);
   procedure ExitProfileBlock;
   procedure PrintProfilerResults;
+  function  FindAnchor(nAddr : Pointer): PProfileAnchor;
 
 implementation
 uses
@@ -50,7 +56,7 @@ uses
   SysUtils;
 
 var
-  g_TableProfiler    : array of THashEntry;
+  g_TableProfiler    : array of THashEntryArr;
   g_ProfileStack     : TProfilerStack;
   g_nCyclesPerSecond : Int64;
 
@@ -63,42 +69,94 @@ begin
   g_ProfileStack.nAtIndex := 0;
 end;
 
-function CalculateAnchorIndex(nPow2 : Integer; nHash : Uint64): Integer;
-asm
-  xor rax, rax
-  not rax
-  shl rax, cl
-  not rax
-  and rax, nHash
+function FindAnchor(nAddr : Pointer): PProfileAnchor;
+var
+  nIndex       : Integer;
+  nAnchorIndex : Integer;
+  ptHashEntry  : PHashEntry;
+begin
+  Result := nil;
+  nAnchorIndex := CalculateAnchorIndex(13, HashPointer(nAddr));  
+  ptHashEntry := @g_TableProfiler[nAnchorIndex][0];
+  if ptHashEntry.nKey = nil then
+    begin
+      ptHashEntry.nKey := nAddr;
+      Result := @ptHashEntry.prAnchor;
+    end
+  else
+    begin        
+      for nIndex := 1 to Length(g_TableProfiler[nAnchorIndex])-1 do
+        begin
+          ptHashEntry := @g_TableProfiler[nAnchorIndex][nIndex];
+          if ptHashEntry.nKey = nAddr then
+            begin
+              Result := @ptHashEntry.prAnchor;
+              Break;
+            end;            
+        end;
+    end;
 end;
 
 procedure EnterProfileBlock(nAddr : Pointer);
 var
   pBlock       : PProfileBlock;
   pAnchor      : PProfileAnchor;
+  ptHashEntry  : PHashEntry;
   nAtIdx       : Integer;
   nParentIndex : Integer;
   nAnchorIndex : Integer;
+  nIndex       : Integer;
 begin
   Inc(g_ProfileStack.nAtIndex);
   nAtIdx := g_ProfileStack.nAtIndex;
 
   pBlock := @g_ProfileStack.pbBlocks[nAtIdx];
   pBlock.nParentIndex := g_ProfileStack.pbBlocks[nAtIdx-1].nAnchorIndex;
-  pBlock.nAnchorIndex := CalculateAnchorIndex(13, HashPointer(nAddr));
-  pAnchor := @g_TableProfiler[pBlock.nAnchorIndex].prAnchor;
-  g_TableProfiler[pBlock.nAnchorIndex].nKey := nAddr; // Not needed
+  pBlock.nParentSecondIndex := g_ProfileStack.pbBlocks[nAtIdx-1].nSecondIndex;
+  pBlock.nAnchorIndex := CalculateAnchorIndex(13, HashPointer(nAddr));  
+  ptHashEntry := @g_TableProfiler[pBlock.nAnchorIndex][0];
+
+  if ptHashEntry.nKey = nAddr then
+    begin
+      pBlock.nSecondIndex := 0;
+      pAnchor := @ptHashEntry.prAnchor;
+    end
+  else
+    begin    
+      if ptHashEntry.nKey = nil then
+        begin
+          ptHashEntry.nKey := nAddr;
+          pBlock.nSecondIndex := 0;
+          pAnchor := @ptHashEntry.prAnchor;
+        end
+      else
+        begin        
+          for nIndex := 1 to Length(g_TableProfiler[pBlock.nAnchorIndex])-1 do
+            begin
+              ptHashEntry := @g_TableProfiler[pBlock.nAnchorIndex][nIndex];
+              if ptHashEntry.nKey = nAddr then
+                begin
+                  pAnchor := @ptHashEntry.prAnchor;
+                  pBlock.nSecondIndex := nIndex;
+                  Break;
+                end;            
+            end;
+        end;
+    end;
+
   pBlock.nPrevTimeInclusive := pAnchor.nElapsedInclusive;
   pBlock.nStartTime := ReadTimeStamp;
 end;
 
 procedure ExitProfileBlock;
 var
-  nAtIdx   : Integer;
-  pBlock   : PProfileBlock;
-  pAnchor  : PProfileAnchor;
-  pParent  : PProfileAnchor;
-  nElapsed : Uint64;
+  nAtIdx      : Integer;
+  ptHashEntry : PHashEntry;
+  pBlock      : PProfileBlock;
+  pAnchor     : PProfileAnchor;
+  pParent     : PProfileAnchor;
+  nElapsed    : Uint64;
+  nIndex      : Integer;
 begin
   nElapsed := ReadTimeStamp;
 
@@ -108,15 +166,15 @@ begin
 
   nElapsed := nElapsed - pBlock.nStartTime;
 
-  pAnchor := @g_TableProfiler[pBlock.nAnchorIndex].prAnchor;
-  pParent := @g_TableProfiler[pBlock.nParentIndex].prAnchor;
+  pAnchor := @g_TableProfiler[pBlock.nAnchorIndex][pBlock.nParentSecondIndex].prAnchor;  
+  pParent := @g_TableProfiler[pBlock.nParentIndex][pBlock.nSecondIndex].prAnchor;
 
   pParent.nElapsedExclusive := pParent.nElapsedExclusive - nElapsed;
   pAnchor.nElapsedExclusive := pAnchor.nElapsedExclusive + nElapsed;
   pAnchor.nElapsedInclusive := pBlock.nPrevTimeInclusive + nElapsed;
 
   Inc(pAnchor.nHitCount);
-end;  
+end;
 
 function CyclesToMs(nCycles : Int64): Double;
 begin
@@ -153,18 +211,22 @@ end;
 procedure PrintProfilerResults;
 var
   nIndex   : Integer;
+  nIndex2  : Integer;
   prAnchor : PProfileAnchor;
 begin
   CallibrateTimeStamp;
   for nIndex := 0 to Length(g_TableProfiler)-1 do
     begin
-      if g_TableProfiler[nIndex].prAnchor.nHitCount > 0 then
+      for nIndex2 := 0 to Length(g_TableProfiler[nIndex])-1 do
         begin
-          prAnchor := @g_TableProfiler[nIndex].prAnchor;
-          Writeln('Addr ' + Uint64(g_TableProfiler[nIndex].nKey).ToString + #9 +            
-            ' Exclusive=' + CyclesToMs(prAnchor.nElapsedExclusive).ToString + ' ms.' +
-            ' w/children=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
-            ' HitCount='  + prAnchor.nHitCount.ToString);
+          if g_TableProfiler[nIndex][nIndex2].prAnchor.nHitCount > 0 then
+            begin
+              prAnchor := @g_TableProfiler[nIndex][nIndex2].prAnchor;
+              Writeln('Addr ' + Uint64(g_TableProfiler[nIndex][nIndex2].nKey).ToString + #9 +            
+                ' Exclusive=' + CyclesToMs(prAnchor.nElapsedExclusive).ToString + ' ms.' +
+                ' w/children=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
+                ' HitCount='  + prAnchor.nHitCount.ToString);
+            end;
         end;
     end;
 end;

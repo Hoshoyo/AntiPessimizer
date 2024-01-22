@@ -5,6 +5,7 @@ interface
 function GenerateRandomSeed: Uint64;
 function GenerateRandomNumber: Uint64;
 function HashPointer(pAddr : Pointer): Uint64;
+function CalculateAnchorIndex(nPow2 : Integer; nHash : Uint64): Integer;
 function ReadTimeStamp: Uint64;
 
 implementation
@@ -48,6 +49,15 @@ asm
   aesdec xmm0, xmm0
 
   movq rax, xmm0
+end;
+
+function CalculateAnchorIndex(nPow2 : Integer; nHash : Uint64): Integer;
+asm
+  xor rax, rax
+  not rax
+  shl rax, cl
+  not rax
+  and rax, nHash
 end;
 
 initialization
