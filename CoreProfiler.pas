@@ -107,8 +107,6 @@ var
   pAnchor      : PProfileAnchor;
   ptHashEntry  : PHashEntry;
   nAtIdx       : Integer;
-  nParentIndex : Integer;
-  nAnchorIndex : Integer;
   nIndex       : Integer;
 begin
   Inc(g_ProfileStack.nAtIndex);
@@ -127,25 +125,17 @@ begin
       pAnchor := @ptHashEntry.prAnchor;
     end
   else
-    begin    
-      if ptHashEntry.nKey = nil then
+    begin
+      Assert(ptHashEntry.nKey <> nil);     
+      for nIndex := 1 to Length(g_TableProfiler[pBlock.nAnchorIndex])-1 do
         begin
-          ptHashEntry.nKey := nAddr;
-          pBlock.nSecondIndex := 0;
-          pAnchor := @ptHashEntry.prAnchor;
-        end
-      else
-        begin        
-          for nIndex := 1 to Length(g_TableProfiler[pBlock.nAnchorIndex])-1 do
+          ptHashEntry := @g_TableProfiler[pBlock.nAnchorIndex][nIndex];
+          if ptHashEntry.nKey = nAddr then
             begin
-              ptHashEntry := @g_TableProfiler[pBlock.nAnchorIndex][nIndex];
-              if ptHashEntry.nKey = nAddr then
-                begin
-                  pAnchor := @ptHashEntry.prAnchor;
-                  pBlock.nSecondIndex := nIndex;
-                  Break;
-                end;            
-            end;
+              pAnchor := @ptHashEntry.prAnchor;
+              pBlock.nSecondIndex := nIndex;
+              Break;
+            end;            
         end;
     end;
 
@@ -156,12 +146,10 @@ end;
 function ExitProfileBlock: Pointer;
 var
   nAtIdx      : Integer;
-  ptHashEntry : PHashEntry;
   pBlock      : PProfileBlock;
   pAnchor     : PProfileAnchor;
   pParent     : PProfileAnchor;
   nElapsed    : Uint64;
-  nIndex      : Integer;
 begin
   nElapsed := ReadTimeStamp;
 
@@ -209,6 +197,7 @@ begin
   QueryPerformanceFrequency(nFreq);
   nStart := GetRTClock(nFreq);
   nStartTimeStamp := ReadTimeStamp;
+  nTimeStamp := 0;
   while (GetRTClock(nFreq) - nStart) < c_100MilliSecond do
     nTimeStamp := ReadTimeStamp;
 
