@@ -837,6 +837,7 @@ begin
 
       for nOperand := 0 to High(ud.udOperand) do
         begin
+          // TODO(psv): Jump operator at the beginning cannot be instrumented
           if ud.udOperand[nOperand].nBase = UD_R_RIP then
             begin
               nSizeBits := ud.udOperand[nOperand].nSize;

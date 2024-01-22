@@ -60,16 +60,17 @@ var
   g_StartRdtsc : Uint64;
   g_GlobalHitCount : Integer = 0;
   g_SumHookTime : UInt64;
-  EpilogueJump : Pointer;
 
 procedure HookEpilogue;
 asm
   .noframe
+  push rax
   sub rsp, 32
-  call ExitProfileBlock
+  call ExitProfileBlock  // Returns the address where we need to jump back
   add rsp, 32
+  mov rcx, rax // Use rcx since rax is the return value
 
-  mov rcx, qword ptr[EpilogueJump] // Use rcx since rax is the return value
+  pop rax
   jmp rcx
 end;
 
@@ -174,9 +175,6 @@ var
   nOldProtect : DWORD;
   nToSave     : Cardinal;
 begin
-  //if strName = '_ZN14Antipessimizer12TestFunctionEv' then
-  //  Exit;  
-
   pAnchor := FindAnchor(pProcAddr);
   New(pExecBuffer);
   pAnchor.ptrExecBuffer := pExecBuffer;

@@ -36,6 +36,7 @@ type
     nParentSecondIndex : Integer;
     nStartTime         : Uint64;
     nPrevTimeInclusive : Uint64;
+    ptrReturnTarget    : Pointer;
   end;
   PProfileBlock = ^TProfileBlock;
 
@@ -45,9 +46,12 @@ type
   end;
 
   procedure EnterProfileBlock(nAddr : Pointer);
-  procedure ExitProfileBlock;
+  function  ExitProfileBlock: Pointer;
   procedure PrintProfilerResults;
   function  FindAnchor(nAddr : Pointer): PProfileAnchor;
+
+var
+  EpilogueJump : Pointer; // TODO(psv): Make it Thread safe
 
 implementation
 uses
@@ -114,6 +118,7 @@ begin
   pBlock.nParentIndex := g_ProfileStack.pbBlocks[nAtIdx-1].nAnchorIndex;
   pBlock.nParentSecondIndex := g_ProfileStack.pbBlocks[nAtIdx-1].nSecondIndex;
   pBlock.nAnchorIndex := CalculateAnchorIndex(13, HashPointer(nAddr));  
+  pBlock.ptrReturnTarget := EpilogueJump;
   ptHashEntry := @g_TableProfiler[pBlock.nAnchorIndex][0];
 
   if ptHashEntry.nKey = nAddr then
@@ -148,7 +153,7 @@ begin
   pBlock.nStartTime := ReadTimeStamp;
 end;
 
-procedure ExitProfileBlock;
+function ExitProfileBlock: Pointer;
 var
   nAtIdx      : Integer;
   ptHashEntry : PHashEntry;
@@ -174,6 +179,8 @@ begin
   pAnchor.nElapsedInclusive := pBlock.nPrevTimeInclusive + nElapsed;
 
   Inc(pAnchor.nHitCount);
+
+  Result := pBlock.ptrReturnTarget;
 end;
 
 function CyclesToMs(nCycles : Int64): Double;
