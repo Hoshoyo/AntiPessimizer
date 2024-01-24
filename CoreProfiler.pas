@@ -21,6 +21,7 @@ type
   end;
   PProfileAnchor = ^TProfileAnchor;
 
+  // Indirect Hashing
   THashEntry = record
     nHash    : Int64;
     nKey     : Pointer;
@@ -45,13 +46,36 @@ type
     nAtIndex : Integer;
   end;
 
+  // Direct hashing
+  TDHProfileBlock = record
+    pParentAnchor      : PProfileAnchor;
+    pAnchor            : PProfileAnchor;
+    nStartTime         : Uint64;
+    nPrevTimeInclusive : Uint64;
+    ptrReturnTarget    : Pointer;
+  end;
+  PDHProfileBlock = ^TDHProfileBlock;
+
+  TDHProfilerStack = record
+    pbBlocks    : array [0..c_ProfilerStackSize-1] of TDHProfileBlock;
+    nAddrOffset : Int64;
+    nAtIndex    : Integer;
+  end;
+
   procedure EnterProfileBlock(nAddr : Pointer);
   function  ExitProfileBlock: Pointer;
-  procedure PrintProfilerResults;
   function  FindAnchor(nAddr : Pointer): PProfileAnchor;
+
+  procedure DHEnterProfileBlock(nAddr : Pointer);
+  function  DHExitProfileBlock: Pointer;
+  procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
+
+  procedure PrintProfilerResults;
+  procedure PrintDHProfilerResults;
 
 var
   EpilogueJump : Pointer; // TODO(psv): Make it Thread safe
+  g_DHArrProcedures  : array of Pointer;
 
 implementation
 uses
@@ -61,7 +85,9 @@ uses
 
 var
   g_TableProfiler    : array of THashEntryArr;
+  g_DHTableProfiler  : Pointer;
   g_ProfileStack     : TProfilerStack;
+  g_DHProfileStack   : TDHProfilerStack;
   g_nCyclesPerSecond : Int64;
 
 procedure InitializeGlobalProfilerTable(nCountEntries : Integer);
@@ -71,6 +97,14 @@ begin
 
   ZeroMemory(@g_ProfileStack.pbBlocks[0], Length(g_ProfileStack.pbBlocks) * sizeof(g_ProfileStack.pbBlocks[0]));
   g_ProfileStack.nAtIndex := 0;
+end;
+
+procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
+begin
+  g_DHProfileStack.pbBlocks[0].pAnchor := PProfileAnchor(PByte(pAnchor) - sizeof(TProfileAnchor));
+  g_DHProfileStack.pbBlocks[0].pParentAnchor := PProfileAnchor(PByte(pAnchor) - sizeof(TProfileAnchor));
+  g_DHTableProfiler := pAnchor;
+  g_DHProfileStack.nAddrOffset := nOffsetFromModuleBase;
 end;
 
 function FindAnchor(nAddr : Pointer): PProfileAnchor;
@@ -171,6 +205,48 @@ begin
   Result := pBlock.ptrReturnTarget;
 end;
 
+// Direct hashed anchored profiler
+
+procedure DHEnterProfileBlock(nAddr : Pointer);
+var
+  pBlock       : PDHProfileBlock;
+  nAtIdx       : Integer;
+begin
+  Inc(g_DHProfileStack.nAtIndex);
+  nAtIdx := g_DHProfileStack.nAtIndex;
+
+  pBlock := @g_DHProfileStack.pbBlocks[nAtIdx];
+  pBlock.pParentAnchor := g_DHProfileStack.pbBlocks[nAtIdx-1].pParentAnchor;
+  pBlock.pAnchor := PProfileAnchor(PByte(nAddr) + g_DHProfileStack.nAddrOffset);
+  pBlock.ptrReturnTarget := EpilogueJump;
+
+  pBlock.nPrevTimeInclusive := pBlock.pAnchor.nElapsedInclusive;
+  pBlock.nStartTime := ReadTimeStamp;
+end;
+
+function DHExitProfileBlock: Pointer;
+var
+  nAtIdx      : Integer;
+  pBlock      : PDHProfileBlock;
+  nElapsed    : Uint64;
+begin
+  nElapsed := ReadTimeStamp;
+
+  nAtIdx := g_DHProfileStack.nAtIndex;
+  pBlock := @g_DHProfileStack.pbBlocks[nAtIdx];
+  Dec(g_DHProfileStack.nAtIndex);
+
+  nElapsed := nElapsed - pBlock.nStartTime;
+
+  pBlock.pParentAnchor.nElapsedExclusive := pBlock.pParentAnchor.nElapsedExclusive - nElapsed;
+  pBlock.pAnchor.nElapsedExclusive := pBlock.pAnchor.nElapsedExclusive + nElapsed;
+  pBlock.pAnchor.nElapsedInclusive := pBlock.nPrevTimeInclusive + nElapsed;
+
+  Inc(pBlock.pAnchor.nHitCount);
+
+  Result := pBlock.ptrReturnTarget;
+end;
+
 function CyclesToMs(nCycles : Int64): Double;
 begin
   Result := (nCycles / g_nCyclesPerSecond) * 1000.0;
@@ -225,6 +301,29 @@ begin
                 ' w/children=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
                 ' HitCount='  + prAnchor.nHitCount.ToString);
             end;
+        end;
+    end;
+end;
+
+procedure PrintDHProfilerResults;
+var
+  nIndex   : Integer;
+  nIndex2  : Integer;
+  prAnchor : PProfileAnchor;
+begin
+  CallibrateTimeStamp;
+
+  for nIndex := 0 to Length(g_DHArrProcedures)-1 do
+    begin
+      prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack.nAddrOffset);
+      if prAnchor.nHitCount > 0 then
+        begin
+          Writeln(
+            'Name=' + prAnchor.strName + #9 +
+            //' Addr ' + Uint64(g_TableProfiler[nIndex][nIndex2].nKey).ToString + #9 +
+            ' Exclusive=' + CyclesToMs(prAnchor.nElapsedExclusive).ToString + ' ms.' +
+            ' w/children=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
+            ' HitCount='  + prAnchor.nHitCount.ToString);
         end;
     end;
 end;

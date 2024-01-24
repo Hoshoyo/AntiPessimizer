@@ -19,7 +19,6 @@ type
     pExecBuffer : PAnchorBuffer;
   end;
 
-  procedure LoadModuleDebugInfoForCurrentModule;
   function ProfilerCycleTime: String;
 
 implementation
@@ -66,7 +65,8 @@ asm
   .noframe
   push rax
   sub rsp, 32
-  call ExitProfileBlock  // Returns the address where we need to jump back
+  //call ExitProfileBlock  // Returns the address where we need to jump back
+  call DHExitProfileBlock  // Returns the address where we need to jump back
   add rsp, 32
   mov rcx, rax // Use rcx since rax is the return value
 
@@ -78,7 +78,8 @@ procedure HookEpilogueException;
 asm
   .noframe
   sub rsp, 32
-  call ExitProfileBlock
+  //call ExitProfileBlock
+  call DHExitProfileBlock
   add rsp, 32
 end;
 
@@ -125,7 +126,8 @@ asm
     push r10
 
     sub rsp, 32
-    call EnterProfileBlock
+    //call EnterProfileBlock
+    call DHEnterProfileBlock
     add rsp, 32
 
     pop r10
@@ -168,14 +170,12 @@ begin
   Result := PJclPeBorTD32Image(Pointer(NativeInt(obj) + MemberVarOffset))^;
 end;
 
-procedure InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal);
+procedure InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor);
 var
-  pAnchor     : PProfileAnchor;
   pExecBuffer : PAnchorBuffer;
   nOldProtect : DWORD;
   nToSave     : Cardinal;
 begin
-  pAnchor := FindAnchor(pProcAddr);
   New(pExecBuffer);
   pAnchor.ptrExecBuffer := pExecBuffer;
   pAnchor.strName := strName;
@@ -370,24 +370,15 @@ begin
     end;
 end;
 
-procedure InstrumentMainModule;
-begin
-
-end;
-
-procedure LoadModuleDebugInfoForCurrentModule;
+function LoadModuleProcDebugInfoForModule(Module : HMODULE; var Image : TJclPeBorTD32Image): TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
 var
   Item    : TJclDebugInfoSource;
-  Image   : TJclPeBorTD32Image;
-  Module  : HMODULE;
   modInfo : MODULEINFO;
   procInfo : TJclTD32ProcSymbolInfo;
   pProcAddr : Pointer;
-  dcProcsByModule : TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
   lstProcs : TList<TJclTD32ProcSymbolInfo>;
   strName : String;
 begin
-  Module := GetModuleHandle(nil);
   Item := CreateDebugInfoWithTD32(Module);
 
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
@@ -395,22 +386,73 @@ begin
   if (Item <> nil) and (Item is TJclDebugInfoTD32) then
     begin
       Image := GetBase(Item);
-      dcProcsByModule := ClassifyProcByModule(Item, Uint64(modInfo.lpBaseOfDll));
-      //ClassifyProcBySourceModule(Item, Uint64(modInfo.lpBaseOfDll));
-      //SerializeDebugInfo(Item, Uint64(modInfo.lpBaseOfDll));
+      Result := ClassifyProcByModule(Item, Uint64(modInfo.lpBaseOfDll));
+    end
+  else
+    Result := nil;
+end;
 
-      if dcProcsByModule.TryGetValue('AntiPessimizer', lstProcs) then
+procedure InstrumentModuleProcs;
+var
+  dcProcsByModule : TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
+  lstProcs  : TList<TJclTD32ProcSymbolInfo>;
+  Image     : TJclPeBorTD32Image;
+  procInfo  : TJclTD32ProcSymbolInfo;
+  pProcAddr : Pointer;
+  Module    : HMODULE;
+  modInfo   : MODULEINFO;
+  strName   : String;
+  nLowProc  : Uint64;
+  nHighProc : Uint64;
+  nSize     : Uint64;
+  nLastAddr : Uint64;
+  pDhTable  : Pointer;
+  nIndex    : Integer;
+begin
+  Module := GetModuleHandle(nil);
+  dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
+  GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
+
+  if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('AntiPessimizer', lstProcs) then
+    begin
+      nLowProc := $FFFFFFFFFFFFFFFF;
+      nHighProc := 0;
+      for procInfo in lstProcs do
         begin
+          pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
+
+          if Uint64(pProcAddr) < nLowProc then
+            nLowProc := Uint64(pProcAddr);
+          if Uint64(pProcAddr) > nHighProc then
+            nHighProc := Uint64(pProcAddr);
+
+          //InstrumentFunction(strName, pProcAddr, procInfo.Size, FindAnchor(pProcAddr));
+        end;
+
+      // After finding it allocate the memory needed
+      if (nLowProc <> $FFFFFFFFFFFFFFFF) and (nHighProc <> 0) and (nHighProc > nLowProc) then
+        begin
+          nSize := nHighProc - nLowProc;
+          pDhTable := AllocMem(nSize + 2 * sizeof(TProfileAnchor));
+          pDhTable := PByte(pDhTable) + sizeof(TProfileAnchor);
+          ZeroMemory(pDhTable, nSize + 2 * sizeof(TProfileAnchor));
+          InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
+
+          SetLength(g_DHArrProcedures, lstProcs.Count);
+          nIndex := 0;
           for procInfo in lstProcs do
             begin
               pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
-              Image := GetBase(Item);
               strName := Image.TD32Scanner.Names[procInfo.NameIndex];
+              g_DHArrProcedures[nIndex] := pProcAddr;
+              Inc(nIndex);
+              if (Uint64(pProcAddr) - nLastAddr) >= sizeof(TProfileAnchor) then
+                InstrumentFunction(strName, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
 
-              InstrumentFunction(strName, pProcAddr, procInfo.Size);
-            end;                    
+              nLastAddr := UInt64(pProcAddr);
+            end;
         end;
-    end;    
+    end;
 end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
@@ -432,6 +474,6 @@ end;
 
 initialization
   LoadVectoredExceptionHandling;
-  LoadModuleDebugInfoForCurrentModule;
+  InstrumentModuleProcs;
 
 end.

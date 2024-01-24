@@ -75,7 +75,10 @@ end;
 
 begin
   TestFunction;
-  PrintProfilerResults;
+  //PrintProfilerResults;
+  PrintDHProfilerResults;
+
+  Writeln('Profiler took ' + ProfilerCycleTime + ' cycles on average');
 end.
 
 
