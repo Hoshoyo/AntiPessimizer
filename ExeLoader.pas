@@ -56,9 +56,11 @@ var
   g_hKernel : THandle;
   g_InfoSourceClassList : TList = nil;
   g_LastHookedJump : PPointer = nil;
+{$IFDEF MEASURE_HOOKING_TIME}
   g_StartRdtsc : Uint64;
   g_GlobalHitCount : Integer = 0;
   g_SumHookTime : UInt64;
+{$ENDIF}
 
 procedure HookEpilogue;
 asm
@@ -175,6 +177,7 @@ var
   pExecBuffer : PAnchorBuffer;
   nOldProtect : DWORD;
   nToSave     : Cardinal;
+  udErr       : TUdisDisasmError;
 begin
   New(pExecBuffer);
   pAnchor.ptrExecBuffer := pExecBuffer;
@@ -182,20 +185,27 @@ begin
 
   VirtualProtect(Pointer(pExecBuffer), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
-  nToSave := UdisDisasmAtLeastAndPatchRelatives(pProcAddr, nSize, 15, PByte(pExecBuffer), sizeof(TAnchorBuffer));
-
-  if (nToSave >= 15) and (nToSave <= Cardinal(Length(pExecBuffer^))) then
+  udErr := UdisDisasmAtLeastAndPatchRelatives(pProcAddr, nSize, 15, PByte(pExecBuffer), sizeof(TAnchorBuffer), nToSave);
+  if udErr = udErrNone then
     begin
-      VirtualProtect(Pointer(pProcAddr), nSize, PAGE_EXECUTE_READWRITE, nOldProtect);
-      // 15 bytes in total
-      // mov rax imm64
-      // jmp HookJump
-      pProcAddr[0] := $48;
-      pProcAddr[1] := $B8;
-      PUint64(pProcAddr + 2)^ := Uint64(pExecBuffer);
-      pProcAddr[9] := Byte(nToSave - 15);
-      pProcAddr[$A] := $E8;
-      PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4));
+      if (nToSave >= 15) and (nToSave <= Cardinal(Length(pExecBuffer^))) then
+        begin
+          VirtualProtect(Pointer(pProcAddr), nSize, PAGE_EXECUTE_READWRITE, nOldProtect);
+          // 15 bytes in total
+          // mov rax imm64
+          // jmp HookJump
+          pProcAddr[0] := $48;
+          pProcAddr[1] := $B8;
+          PUint64(pProcAddr + 2)^ := Uint64(pExecBuffer);
+          pProcAddr[9] := Byte(nToSave - 15);
+          pProcAddr[$A] := $E8;
+          PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4));
+        end;
+    end
+  else
+    begin
+      Dispose(pExecBuffer);
+      OutputDebugString(PWideChar('Could not instrument function ' + strName + ', reason=' + UdErrorToStr(udErr)));
     end;
 end;
 
@@ -237,7 +247,6 @@ var
   nSearchEnd   : Integer;
   nStart       : Integer;
   strName      : String;
-  strProc      : String;
   srcModule    : TJclTD32SourceModuleInfo;
   lstProcs     : TList<TJclTD32ProcSymbolInfo>;
   procInfo     : TJclTD32ProcSymbolInfo;
@@ -265,7 +274,7 @@ begin
                   for nProc := nStart to Image.TD32Scanner.ProcSymbolCount-1 do
                     begin
                       procInfo := Image.TD32Scanner.ProcSymbols[nProc];
-                      if (procInfo.Offset < nSearchEnd) then                   
+                      if (procInfo.Offset < Cardinal(nSearchEnd)) then
                         lstProcs.Add(procInfo);
                     end;
                 end;
@@ -295,7 +304,6 @@ var
   nSearchEnd   : Integer;
   nStart       : Integer;
   strName      : String;
-  strProc      : String;
   modInfo      : TJclTD32ModuleInfo;
   lstProcs     : TList<TJclTD32ProcSymbolInfo>;
   procInfo     : TJclTD32ProcSymbolInfo;
@@ -323,7 +331,7 @@ begin
                   for nProc := nStart to Image.TD32Scanner.ProcSymbolCount-1 do
                     begin
                       procInfo := Image.TD32Scanner.ProcSymbols[nProc];
-                      if (procInfo.Offset < nSearchEnd) then                   
+                      if (procInfo.Offset < Cardinal(nSearchEnd)) then
                         lstProcs.Add(procInfo);
                     end;
                 end;
@@ -374,10 +382,6 @@ function LoadModuleProcDebugInfoForModule(Module : HMODULE; var Image : TJclPeBo
 var
   Item    : TJclDebugInfoSource;
   modInfo : MODULEINFO;
-  procInfo : TJclTD32ProcSymbolInfo;
-  pProcAddr : Pointer;
-  lstProcs : TList<TJclTD32ProcSymbolInfo>;
-  strName : String;
 begin
   Item := CreateDebugInfoWithTD32(Module);
 
@@ -409,7 +413,10 @@ var
   pDhTable  : Pointer;
   nIndex    : Integer;
 begin
-  OutputDebugString('------------------- Instrumenting Module procedures!');
+  if not g_bUdisLoaded then
+    Exit;
+
+  OutputDebugString('------------------- Instrumenting Module procedures ---------------------');
 
   Module := GetModuleHandle(nil);
   dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
@@ -417,6 +424,7 @@ begin
 
   if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('GdiExample', lstProcs) then
     begin
+      // Find lowest and highest address to make the hash table
       nLowProc := $FFFFFFFFFFFFFFFF;
       nHighProc := 0;
       for procInfo in lstProcs do
@@ -427,8 +435,6 @@ begin
             nLowProc := Uint64(pProcAddr);
           if Uint64(pProcAddr) > nHighProc then
             nHighProc := Uint64(pProcAddr);
-
-          //InstrumentFunction(strName, pProcAddr, procInfo.Size, FindAnchor(pProcAddr));
         end;
 
       // After finding it allocate the memory needed
@@ -443,6 +449,7 @@ begin
           SetLength(g_DHArrProcedures, lstProcs.Count);
           ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
           nIndex := 0;
+          nLastAddr := 0;
           for procInfo in lstProcs do
             begin
               pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
@@ -468,6 +475,7 @@ function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 begin
   HookEpilogueException;
   g_LastHookedJump^ := EpilogueJump;
+  Result := 0;
 end;
 
 procedure LoadVectoredExceptionHandling;

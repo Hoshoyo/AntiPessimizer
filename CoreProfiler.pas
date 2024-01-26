@@ -160,6 +160,7 @@ begin
     end
   else
     begin
+      pAnchor := nil;
       Assert(ptHashEntry.nKey <> nil);     
       for nIndex := 1 to Length(g_TableProfiler[pBlock.nAnchorIndex])-1 do
         begin
@@ -173,7 +174,8 @@ begin
         end;
     end;
 
-  pBlock.nPrevTimeInclusive := pAnchor.nElapsedInclusive;
+  if pAnchor <> nil then
+    pBlock.nPrevTimeInclusive := pAnchor.nElapsedInclusive;
   pBlock.nStartTime := ReadTimeStamp;
 end;
 
@@ -308,7 +310,6 @@ end;
 procedure PrintDHProfilerResults;
 var
   nIndex   : Integer;
-  nIndex2  : Integer;
   prAnchor : PProfileAnchor;
 begin
   CallibrateTimeStamp;

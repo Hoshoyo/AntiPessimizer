@@ -63,6 +63,6 @@ end;
 initialization
   //while g_RandomSeed = 0 do
   //  g_RandomSeed := GenerateRandomSeed;
-  g_RandomSeed := 10890402341074030334;
+  g_RandomSeed := Int64(10890402341074030334);
 
 end.

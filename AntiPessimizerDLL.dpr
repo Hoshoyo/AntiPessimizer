@@ -72,10 +72,17 @@ begin
     end;
 end;
 
+function GetCurrentDir: String;
+var
+  Buffer: array[0..MAX_PATH] of Char;
+begin
+  GetCurrentDirectory(MAX_PATH, Buffer);
+  Result := String(Buffer);
+end;
+
 var
   thID : DWORD;
-  hThread : THandle;
 begin
-  OutputDebugString('Test Debug');
-  hThread := CreateThread(nil, 0, @Worker, nil, 0, thID);
+  OutputDebugString(PWidechar('AntiPessimizer started on ' + GetCurrentDir));
+  CreateThread(nil, 0, @Worker, nil, 0, thID);
 end.

@@ -66,51 +66,6 @@ type
   // Operand Types
   UD_OP_REG,  UD_OP_MEM,  UD_OP_PTR,  UD_OP_IMM,
   UD_OP_JIMM, UD_OP_CONST);
-{$Z1}
-  TUdLVal = Uint64; // union with all types
-
-  TUdOperand = record
-    nType   : TUdType;
-    nSize   : Byte;
-    nBase   : TUdType;
-    nIndex  : TUdType;
-    nScale  : Byte;
-    nOffset : Byte;
-    lVal    : TUdLVal;
-    nLegacy : Uint64;
-    nOpr    : Byte;
-  end;
-
-  UdRec = record
-    inpHook : Pointer;
-    inpFile : Pointer;
-    pInpBuf : PByte;
-    nInpBufSize : Uint64;
-    nInpBufIndex : Uint64;
-    udReserved : array [0..$15F] of Byte;
-    udOperand : array [0..2] of TUdOperand;
-    nError   : Byte;
-    pfxRex   : Byte;
-    pfxSeg   : Byte;
-    pfxOpr   : Byte;
-    pfxAdr   : Byte;
-    pfxLock  : Byte;
-    pfxStr   : Byte;
-    pfxRep   : Byte;
-    pfxRepe  : Byte;
-    pfxRepne : Byte;
-    oprMode  : Byte;
-    adrMode  : Byte;
-    brFar    : Byte;
-    brNear   : Byte;
-    bHaveMRm : Byte;
-    nModRM   : Byte;
-    nPrimOpcode : Byte;
-    nUserOpaqueData : Pointer;
-    iTabEntry : Pointer;
-    le : Pointer;
-  end;
-  PUdRec = ^UdRec;
 
   TUdisMnemonic = (
     UD_Iinvalid,
@@ -763,15 +718,67 @@ type
     UD_Icrc32,
     UD_MAX_MNEMONIC_CODE
   );
+{$Z1}
+
+  TUdLVal = Uint64; // union with all types
+
+  TUdOperand = record
+    nType   : TUdType;
+    nSize   : Byte;
+    nBase   : TUdType;
+    nIndex  : TUdType;
+    nScale  : Byte;
+    nOffset : Byte;
+    lVal    : TUdLVal;
+    nLegacy : Uint64;
+    nOpr    : Byte;
+  end;
+
+  UdRec = record
+    inpHook : Pointer;
+    inpFile : Pointer;
+    pInpBuf : PByte;
+    nInpBufSize : Uint64;
+    nInpBufIndex : Uint64;
+    udReserved : array [0..$15F-4] of Byte;
+    mnemonic : TUdisMnemonic;
+    udOperand : array [0..2] of TUdOperand;
+    nError   : Byte;
+    pfxRex   : Byte;
+    pfxSeg   : Byte;
+    pfxOpr   : Byte;
+    pfxAdr   : Byte;
+    pfxLock  : Byte;
+    pfxStr   : Byte;
+    pfxRep   : Byte;
+    pfxRepe  : Byte;
+    pfxRepne : Byte;
+    oprMode  : Byte;
+    adrMode  : Byte;
+    brFar    : Byte;
+    brNear   : Byte;
+    bHaveMRm : Byte;
+    nModRM   : Byte;
+    nPrimOpcode : Byte;
+    nUserOpaqueData : Pointer;
+    iTabEntry : Pointer;
+    le : Pointer;
+  end;
+  PUdRec = ^UdRec;
+
+  TUdisDisasmError = (udErrNone = 0, udErrProcedureTooSmall, udErrJmpAtStart, udErrExecBufferTooSmallForJumpback, udErrExecBufferTooSmallForPatching);
 
 var
+  g_bUdisLoaded : Boolean = False;
+
   UdInit           : procedure (ud : PUdRec); stdcall;
   UdSetMode        : procedure (ud : PUdRec; nMode : Byte); stdcall;
   UdSetInputBuffer : procedure (ud : PUdRec; pBuffer : PByte; nSize : SIZE_T); stdcall;
   UdDisassemble    : function  (ud : PUdRec): Cardinal; stdcall;
 
+  function UdErrorToStr(udErr : TUdisDisasmError): String;
   function UdisDisasmAtLeast(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal): Cardinal;
-  function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal): Cardinal;
+  function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal; var nBytesDisassembled : Cardinal): TUdisDisasmError;
 
 implementation
   uses
@@ -779,6 +786,19 @@ implementation
 
 var
   hUdis : THandle;
+
+function UdErrorToStr(udErr : TUdisDisasmError): String;
+begin
+  case udErr of
+    udErrNone:                          Result := 'Ok';
+    udErrProcedureTooSmall:             Result := 'Procedure is too small';
+    udErrJmpAtStart:                    Result := 'Jump at the start';
+    udErrExecBufferTooSmallForJumpback: Result := 'Buffer too small for jumpback';
+    udErrExecBufferTooSmallForPatching: Result := 'Buffer too small for patching';
+  else
+    Result := 'Unknown';
+  end;
+end;
 
 function UdisDisasmAtLeast(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal): Cardinal;
 var
@@ -797,7 +817,7 @@ begin
   Result := nBytesDisassembled;
 end;
 
-function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal): Cardinal;
+function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal; var nBytesDisassembled : Cardinal): TUdisDisasmError;
 type
   TRelToVal = record
     ptrPatch    : Pointer;  // To be patched
@@ -808,10 +828,8 @@ type
   end;
 var
   ud                 : UdRec;
-  nBytesDisassembled : Cardinal;
   nInstrSize         : Cardinal;
   nSizeBits          : Byte;
-  nOpSizeBits        : Byte;
   nRelIdx            : Integer;
   nOperand           : Integer;
   nIndex             : Integer;
@@ -819,7 +837,9 @@ var
   arPatch            : array [0..7] of TRelToVal;
 begin
   if nBufferSize < nByteCountToDisasm then
-    Exit(0);
+    begin
+      Exit(udErrProcedureTooSmall);
+    end;
 
   UdInit(@ud);
   UdSetMode(@ud, 64);
@@ -839,8 +859,15 @@ begin
 
       for nOperand := 0 to High(ud.udOperand) do
         begin
-          // TODO(psv): Jump operator at the beginning cannot be instrumented
-          if ud.udOperand[nOperand].nBase = UD_R_RIP then
+          case ud.mnemonic of
+            UD_Iiretw, UD_Iiretd, UD_Iiretq, UD_Ijo, UD_Ijno, UD_Ijb, UD_Ijae,
+            UD_Ijz, UD_Ijnz, UD_Ijbe, UD_Ija, UD_Ijs, UD_Ijns, UD_Ijp, UD_Ijnp,
+            UD_Ijl, UD_Ijge, UD_Ijle, UD_Ijg, UD_Ijcxz, UD_Ijecxz, UD_Ijrcxz, UD_Ijmp:
+              begin
+                Exit(udErrJmpAtStart);
+              end;
+          else
+            if ud.udOperand[nOperand].nBase = UD_R_RIP then
             begin
               nSizeBits := ud.udOperand[nOperand].nSize;
               arPatch[nRelIdx].ptrPatch := pRelBuffer + nInstrSize - 4;
@@ -852,6 +879,7 @@ begin
               CopyMemory(@arPatch[nRelIdx].nValue, PByte(pAt) + nBytesDisassembled + Integer(ud.udOperand[1].lVal), nSizeBits div 8);
               Inc(nRelIdx);
             end;
+          end;
         end;
 
       Inc(pRelBuffer, nInstrSize);
@@ -868,7 +896,8 @@ begin
     end
   else
     begin
-      // TODO(psv): Error, not enough size in the buffer for the jump back
+      // Error, not enough size in the buffer for the jump back
+      Exit(udErrExecBufferTooSmallForJumpback);
     end;
 
   if nRelBufSize > 0 then
@@ -893,16 +922,17 @@ begin
     end
   else
     begin
-      // TODO(psv): Error, not enough size in the buffer for the relative jumps
+      // Error, not enough size in the buffer for the relative jumps
+      Exit(udErrExecBufferTooSmallForPatching);
     end;
 
-  Result := nBytesDisassembled;
+  Result := udErrNone;
 end;
 
-procedure LoadUdis;
+function LoadUdis: Boolean;
 begin
-  hUdis := LoadLibrary('C:\dev\delphi\AntiPessimizer\Win64\Debug\libudis.dll');
-  //hUdis := LoadLibrary('libudis.dll');
+  //hUdis := LoadLibrary('C:\dev\delphi\AntiPessimizer\Win64\Debug\libudis.dll');
+  hUdis := LoadLibrary('libudis.dll');
   OutputDebugString(PWidechar('Loading UDIS ' + Format('%p', [Uint64(hUdis)])));
   if hUdis <> 0 then
     begin
@@ -911,14 +941,16 @@ begin
       @UdSetInputBuffer := GetProcAddress(hUdis, 'ud_set_input_buffer');
       @UdDisassemble := GetProcAddress(hUdis, 'ud_disassemble');
 
-      OutputDebugString(PWidechar('LOADED UDIS ' + Format('%p', [Uint64(@UdInit)])));
+      OutputDebugString(PWidechar('Loaded Udis86 ' + Format('%p', [Uint64(@UdInit)])));
+      Result := True;
     end
   else
     begin
-      OutputDebugString('Failed to load UDIS');
+      OutputDebugString('Failed to load Udis86');
+      Result := False;
     end;
 end;
 
 initialization
-  LoadUdis;
+  g_bUdisLoaded := LoadUdis;
 end.
