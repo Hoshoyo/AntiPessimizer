@@ -1,6 +1,7 @@
 __history/
 Win64/
 Win32/
+.vs/
 *.res
 *.local
 *.identcache

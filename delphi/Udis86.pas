@@ -932,7 +932,7 @@ end;
 function LoadUdis: Boolean;
 begin
   //hUdis := LoadLibrary('C:\dev\delphi\AntiPessimizer\Win64\Debug\libudis.dll');
-  hUdis := LoadLibrary('libudis.dll');
+  hUdis := LoadLibrary('lib\udis86\libudis.dll');
   OutputDebugString(PWidechar('Loading UDIS ' + Format('%p', [Uint64(hUdis)])));
   if hUdis <> 0 then
     begin

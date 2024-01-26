@@ -1,4 +1,4 @@
-program AntiPessimizer;
+program AntiPessimizerDelphi;
 {$APPTYPE CONSOLE}
 {$R *.res}
 uses
