@@ -116,6 +116,7 @@
         </DelphiCompile>
         <DCCReference Include="CoreProfiler.pas"/>
         <DCCReference Include="ExeLoader.pas"/>
+        <DCCReference Include="Udis86.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>
@@ -170,7 +171,7 @@
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="Win64\Debug\AntiPessimizerDLL.dll" Configuration="Debug" Class="ProjectOutput">
+                <DeployFile LocalName="..\Win64\Debug\AntiPessimizerDLL.dll" Configuration="Debug" Class="ProjectOutput">
                     <Platform Name="Win64">
                         <RemoteName>AntiPessimizerDLL.dll</RemoteName>
                         <Overwrite>true</Overwrite>

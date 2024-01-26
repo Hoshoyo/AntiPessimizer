@@ -7,7 +7,8 @@ uses
   RTTI,
   System.Classes,
   CoreProfiler in 'CoreProfiler.pas',
-  ExeLoader in 'ExeLoader.pas';
+  ExeLoader in 'ExeLoader.pas',
+  Udis86 in 'Udis86.pas';
 
 {$R *.res}
 
