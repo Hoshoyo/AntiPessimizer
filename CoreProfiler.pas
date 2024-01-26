@@ -313,12 +313,15 @@ var
 begin
   CallibrateTimeStamp;
 
-  for nIndex := 0 to Length(g_DHArrProcedures)-1 do
+  for nIndex := 1 to Length(g_DHArrProcedures)-1 do
     begin
+      if g_DHArrProcedures[nIndex] = nil then
+        continue;
       prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack.nAddrOffset);
       if prAnchor.nHitCount > 0 then
         begin
           Writeln(
+            '[' + IntToStr(nIndex) + '] ' +
             'Name=' + prAnchor.strName + #9 +
             //' Addr ' + Uint64(g_TableProfiler[nIndex][nIndex2].nKey).ToString + #9 +
             ' Exclusive=' + CyclesToMs(prAnchor.nElapsedExclusive).ToString + ' ms.' +

@@ -774,6 +774,8 @@ var
   function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal): Cardinal;
 
 implementation
+  uses
+    SysUtils;
 
 var
   hUdis : THandle;
@@ -899,17 +901,24 @@ end;
 
 procedure LoadUdis;
 begin
-  hUdis := LoadLibrary('libudis.dll');
+  hUdis := LoadLibrary('C:\dev\delphi\AntiPessimizer\Win64\Debug\libudis.dll');
+  //hUdis := LoadLibrary('libudis.dll');
+  OutputDebugString(PWidechar('Loading UDIS ' + Format('%p', [Uint64(hUdis)])));
   if hUdis <> 0 then
     begin
       @UdInit := GetProcAddress(hUdis, 'ud_init');
       @UdSetMode := GetProcAddress(hUdis, 'ud_set_mode');
       @UdSetInputBuffer := GetProcAddress(hUdis, 'ud_set_input_buffer');
       @UdDisassemble := GetProcAddress(hUdis, 'ud_disassemble');
+
+      OutputDebugString(PWidechar('LOADED UDIS ' + Format('%p', [Uint64(@UdInit)])));
+    end
+  else
+    begin
+      OutputDebugString('Failed to load UDIS');
     end;
 end;
 
 initialization
   LoadUdis;
-
 end.

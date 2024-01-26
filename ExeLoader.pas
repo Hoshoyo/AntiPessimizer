@@ -409,11 +409,13 @@ var
   pDhTable  : Pointer;
   nIndex    : Integer;
 begin
+  OutputDebugString('------------------- Instrumenting Module procedures!');
+
   Module := GetModuleHandle(nil);
   dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
 
-  if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('AntiPessimizer', lstProcs) then
+  if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('GdiExample', lstProcs) then
     begin
       nLowProc := $FFFFFFFFFFFFFFFF;
       nHighProc := 0;
@@ -439,20 +441,27 @@ begin
           InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
 
           SetLength(g_DHArrProcedures, lstProcs.Count);
+          ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
           nIndex := 0;
           for procInfo in lstProcs do
             begin
               pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
               strName := Image.TD32Scanner.Names[procInfo.NameIndex];
-              g_DHArrProcedures[nIndex] := pProcAddr;
-              Inc(nIndex);
+
               if (Uint64(pProcAddr) - nLastAddr) >= sizeof(TProfileAnchor) then
-                InstrumentFunction(strName, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
+                begin
+                  g_DHArrProcedures[nIndex] := pProcAddr;
+
+                  OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + ']'));
+                  InstrumentFunction(strName, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
+                end;
+              Inc(nIndex);
 
               nLastAddr := UInt64(pProcAddr);
             end;
         end;
     end;
+  OutputDebugString('End of instrumentation');
 end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;

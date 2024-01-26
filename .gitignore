@@ -1,5 +1,6 @@
 __history/
 Win64/
+Win32/
 *.res
 *.local
 *.identcache
