@@ -67,7 +67,7 @@ function Worker(pParam : Pointer): DWORD; stdcall;
 begin
   while true do
     begin
-      OutputDebugString('Debug Thread');
+      OutputDebugString(PWidechar('Debug Thread ' + IntToStr(GetCurrentThreadID)));
       PrintDHProfilerResults;
       Sleep(1000);
     end;
@@ -84,6 +84,7 @@ end;
 var
   thID : DWORD;
 begin
+  OutputDebugString('AntiPessimizerStartup');
   OutputDebugString(PWidechar('AntiPessimizer started on ' + GetCurrentDir));
   CreateThread(nil, 0, @Worker, nil, 0, thID);
 end.
