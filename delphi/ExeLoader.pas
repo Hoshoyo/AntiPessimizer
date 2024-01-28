@@ -405,8 +405,11 @@ begin
   dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
 
+  {$IFDEF ANTIPESSIMIZER_DELPHI}
+  if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('AntiPessimizerDelphi', lstProcs) then
+  {$ELSE}
   if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('GdiExample', lstProcs) then
-  //if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('AntiPessimizerDelphi', lstProcs) then
+  {$ENDIF}
     begin
       // Find lowest and highest address to make the hash table
       nLowProc := $FFFFFFFFFFFFFFFF;

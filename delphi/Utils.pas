@@ -7,8 +7,11 @@ function GenerateRandomNumber: Uint64;
 function HashPointer(pAddr : Pointer): Uint64;
 function CalculateAnchorIndex(nPow2 : Integer; nHash : Uint64): Integer;
 function ReadTimeStamp: Uint64;
+function GetCurrentDir: String;
 
 implementation
+uses
+  Windows;
 var
   g_RandomSeed : Int64;
 
@@ -58,6 +61,14 @@ asm
   shl rax, cl
   not rax
   and rax, nHash
+end;
+
+function GetCurrentDir: String;
+var
+  Buffer: array[0..MAX_PATH] of Char;
+begin
+  GetCurrentDirectory(MAX_PATH, Buffer);
+  Result := String(Buffer);
 end;
 
 initialization

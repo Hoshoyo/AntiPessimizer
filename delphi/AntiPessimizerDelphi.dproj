@@ -101,6 +101,7 @@
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>(None)</Manifest_File>
         <DCC_UnitSearchPath>.\jcl;.\jcl\jcl\source;.\jcl\jcl;.\jcl\jcl\source\windows;.\jcl\jcl\source\common;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_Define>ANTIPESSIMIZER_DELPHI;$(DCC_Define)</DCC_Define>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
@@ -118,6 +119,7 @@
         <DCC_ExeOutput>..\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_DcuOutput>..\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_UnitSearchPath>.\jcl;.\jcl\jcl\source;.\jcl\jcl;.\jcl\jcl\source\windows;.\jcl\jcl\source\common;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_Define>ANTIPESSIMIZER_DELPHI;$(DCC_Define)</DCC_Define>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
