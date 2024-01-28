@@ -857,17 +857,24 @@ begin
 
       CopyMemory(pRelBuffer, ud.pInpBuf + ud.nInpBufIndex - nInstrSize, nInstrSize);
 
+      case ud.mnemonic of
+        UD_Ileave,
+        UD_Iloopne,
+        UD_Iloope,
+        UD_Iloop,
+        UD_Icall,
+        UD_Iiretw, UD_Iiretd, UD_Iiretq, UD_Ijo, UD_Ijno, UD_Ijb, UD_Ijae,
+        UD_Ijz, UD_Ijnz, UD_Ijbe, UD_Ija, UD_Ijs, UD_Ijns, UD_Ijp, UD_Ijnp,
+        UD_Ijl, UD_Ijge, UD_Ijle, UD_Ijg, UD_Ijcxz, UD_Ijecxz, UD_Ijrcxz, UD_Ijmp:
+          begin
+            Exit(udErrJmpAtStart);
+          end;
+      else
+      end;
+
       for nOperand := 0 to High(ud.udOperand) do
         begin
-          case ud.mnemonic of
-            UD_Iiretw, UD_Iiretd, UD_Iiretq, UD_Ijo, UD_Ijno, UD_Ijb, UD_Ijae,
-            UD_Ijz, UD_Ijnz, UD_Ijbe, UD_Ija, UD_Ijs, UD_Ijns, UD_Ijp, UD_Ijnp,
-            UD_Ijl, UD_Ijge, UD_Ijle, UD_Ijg, UD_Ijcxz, UD_Ijecxz, UD_Ijrcxz, UD_Ijmp:
-              begin
-                Exit(udErrJmpAtStart);
-              end;
-          else
-            if ud.udOperand[nOperand].nBase = UD_R_RIP then
+          if ud.udOperand[nOperand].nBase = UD_R_RIP then
             begin
               nSizeBits := ud.udOperand[nOperand].nSize;
               arPatch[nRelIdx].ptrPatch := pRelBuffer + nInstrSize - 4;
@@ -879,7 +886,6 @@ begin
               CopyMemory(@arPatch[nRelIdx].nValue, PByte(pAt) + nBytesDisassembled + Integer(ud.udOperand[1].lVal), nSizeBits div 8);
               Inc(nRelIdx);
             end;
-          end;
         end;
 
       Inc(pRelBuffer, nInstrSize);
@@ -931,9 +937,9 @@ end;
 
 function LoadUdis: Boolean;
 begin
-  //hUdis := LoadLibrary('C:\dev\delphi\AntiPessimizer\Win64\Debug\libudis.dll');
-  hUdis := LoadLibrary('lib\udis86\libudis.dll');
-  OutputDebugString(PWidechar('Loading UDIS ' + Format('%p', [Uint64(hUdis)])));
+  hUdis := LoadLibrary('C:\dev\delphi\AntiPessimizer\Win64\Debug\libudis.dll');
+  //hUdis := LoadLibrary('lib\udis86\libudis.dll');
+  OutputDebugString(PWidechar('Loading UDIS ' + Format('%p', [Pointer(hUdis)])));
   if hUdis <> 0 then
     begin
       @UdInit := GetProcAddress(hUdis, 'ud_init');
@@ -941,7 +947,7 @@ begin
       @UdSetInputBuffer := GetProcAddress(hUdis, 'ud_set_input_buffer');
       @UdDisassemble := GetProcAddress(hUdis, 'ud_disassemble');
 
-      OutputDebugString(PWidechar('Loaded Udis86 ' + Format('%p', [Uint64(@UdInit)])));
+      OutputDebugString(PWidechar('Loaded Udis86 ' + Format('%p', [Pointer(@UdInit)])));
       Result := True;
     end
   else

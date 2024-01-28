@@ -124,7 +124,7 @@ int main(int argc, char** argv)
 #endif
                     } break;
                     default: {
-                        int x = 0;
+                        dwContinueStatus = DBG_EXCEPTION_NOT_HANDLED;
                     }break;
                 }
             } break;
@@ -198,7 +198,8 @@ int main(int argc, char** argv)
                 }
 #endif
             } break;
-            case EXIT_PROCESS_DEBUG_EVENT: {
+            case EXIT_PROCESS_DEBUG_EVENT: {                
+                printf("Process terminated with exit code %x\n", dbg_event.u.ExitProcess.dwExitCode);
                 //ExitProcess(0);
             } break;
             case RIP_EVENT:
@@ -227,7 +228,6 @@ int main(int argc, char** argv)
         ContinueDebugEvent(dbg_event.dwProcessId,
             dbg_event.dwThreadId,
             dwContinueStatus);
-        dwContinueStatus = DBG_CONTINUE;
     }
 
     TerminateProcess(process_info.hProcess, 0);

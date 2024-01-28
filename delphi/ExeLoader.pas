@@ -183,6 +183,8 @@ begin
   pAnchor.ptrExecBuffer := pExecBuffer;
   pAnchor.strName := strName;
 
+  OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s', [pExecBuffer, strName])));
+
   VirtualProtect(Pointer(pExecBuffer), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
   udErr := UdisDisasmAtLeastAndPatchRelatives(pProcAddr, nSize, 15, PByte(pExecBuffer), sizeof(TAnchorBuffer), nToSave);
@@ -282,15 +284,6 @@ begin
           Result.AddOrSetValue(strName, lstProcs);
           
           Writeln(Format('SourceModule %s has %d procedures.', [strName, lstProcs.Count]));
-          {if lstProcs.Count < 10 then
-            begin
-              for nProc := 0 to lstProcs.Count-1 do
-                begin
-                  strProc := Image.TD32Scanner.Names[lstProcs[nProc].NameIndex];
-                  Writeln('  Procedure=' + strProc);
-                end;
-            end;
-          }
         end;
     end;
 end;
@@ -339,16 +332,6 @@ begin
           Result.AddOrSetValue(strName, lstProcs);
           
           Writeln(Format('Module %s has %d procedures.', [strName, lstProcs.Count]));
-          {
-          if lstProcs.Count < 10 then
-            begin
-              for nProc := 0 to lstProcs.Count-1 do
-                begin
-                  strProc := Image.TD32Scanner.Names[lstProcs[nProc].NameIndex];
-                  Writeln('  Procedure=' + strProc);
-                end;
-            end;
-          }
         end;
     end;
 end;
@@ -423,6 +406,7 @@ begin
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
 
   if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('GdiExample', lstProcs) then
+  //if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('AntiPessimizerDelphi', lstProcs) then
     begin
       // Find lowest and highest address to make the hash table
       nLowProc := $FFFFFFFFFFFFFFFF;
@@ -473,6 +457,7 @@ end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 begin
+  OutputDebugString('VectoredExceptionHandler!');
   HookEpilogueException;
   g_LastHookedJump^ := EpilogueJump;
   Result := 0;

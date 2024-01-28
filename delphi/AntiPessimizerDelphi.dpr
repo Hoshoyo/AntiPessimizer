@@ -13,7 +13,8 @@ uses
   StrUtils,
   ExeLoader in 'ExeLoader.pas',
   CoreProfiler in 'CoreProfiler.pas',
-  Utils in 'Utils.pas';
+  Utils in 'Utils.pas',
+  Udis86 in 'Udis86.pas';
 
 type
   TestBase = class
@@ -39,6 +40,35 @@ begin
   Result := 32;
 end;
 
+procedure DoAnException;
+var
+  nValue : Integer;
+begin
+  nValue := 3;
+  Inc(nValue);
+  Dec(nValue);
+  nValue := PInteger(0)^;
+end;
+
+procedure CatchException;
+{$IFDEF CRASH_EARLY}
+var
+  nValue : Integer;
+{$ENDIF}
+begin
+{$IFDEF CRASH_EARLY}
+  nValue := 3;
+  Inc(nValue);
+  Dec(nValue);
+{$ENDIF}
+  try
+    DoAnException;
+  except
+    on E: Exception do
+      Writeln(E.Message);
+  end;
+end;
+
 // ------------------------------------------------------
 
 procedure TestJump;
@@ -57,6 +87,8 @@ var
 begin
   tc := TestClass.Create;
   tb := TestBase.Create;
+
+  CatchException;
 
   for nIndex := 0 to 10000 do
     begin
