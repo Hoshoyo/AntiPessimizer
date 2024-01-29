@@ -18,8 +18,38 @@ begin
   Result := String(Buffer);
 end;
 
-function Worker(pParam : Pointer): DWORD; stdcall;
+procedure SendData(hHandle : THandle; pData : Pointer; nSize : Int64; nDataType : Integer = 0);
+const
+  WM_COPYDATA = $4A;
+var
+  cpData : COPYDATASTRUCT;
 begin
+  cpData.dwData := nDataType;
+  cpData.cbData := nSize;
+  cpData.lpData := pData;
+  if SendMessage(hHandle, WM_COPYDATA, 0, LPARAM(@cpData)) = 0 then
+    begin
+      // Failed
+    end;
+end;
+
+function Worker(pParam : Pointer): DWORD; stdcall;
+var
+  pipe : THandle;
+  written : Cardinal;
+  pMem : Pointer;
+begin
+  pipe := CreateFileA('\\.\pipe\AntiPessimizerPipe', GENERIC_READ or GENERIC_WRITE, 0, 0,
+    OPEN_EXISTING, 0, 0);
+  OutputDebugString(PWidechar('Debug Thread Pipe=' + IntToStr(pipe)));
+
+  if pipe <> INVALID_HANDLE_VALUE then
+    begin
+      GetMem(pMem, 8192);
+      WriteFile(pipe, PPOinter(pMem)^, 8192, written, 0);
+      OutputDebugString(PWidechar('Debug Thread Written=' + IntToStr(written) + ' Error=' + SysErrorMessage(GetLastError)));
+    end;
+
   while true do
     begin
       OutputDebugString(PWidechar('Debug Thread ' + IntToStr(GetCurrentThreadID)));
@@ -31,7 +61,8 @@ end;
 var
   thID : DWORD;
 begin
-  OutputDebugString('AntiPessimizerStartup');
   OutputDebugString(PWidechar('AntiPessimizer started on ' + GetCurrentDir));
   CreateThread(nil, 0, @Worker, nil, 0, thID);
+
+  OutputDebugString(PWidechar('AntiPessimizerStartup ' + IntToStr(thID)));
 end.

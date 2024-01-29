@@ -11,13 +11,6 @@ uses
 type
   TAnchorBuffer = array [0..63] of Byte;
   PAnchorBuffer = ^TAnchorBuffer;
-  TAnchor = record
-    nStart      : Int64;
-    nElapsed    : Int64;
-    nHitCount   : Int64;
-    strName     : String;
-    pExecBuffer : PAnchorBuffer;
-  end;
 
   function ProfilerCycleTime: String;
 
@@ -29,6 +22,7 @@ uses
   JCLDebug,
   RTTI,
   Classes,
+  Character,
   SysUtils,
   StrUtils;
 type
@@ -172,6 +166,59 @@ begin
   Result := PJclPeBorTD32Image(Pointer(NativeInt(obj) + MemberVarOffset))^;
 end;
 
+function SanitizeName(strName : String): String;
+var
+  nValue : Integer;
+  nIndex : Integer;
+  strAt  : String;
+  bFirst : Boolean;
+
+  function GetNumber(var strValue : String): Integer;
+    var
+      nIndex : Integer;
+    begin
+      nIndex := 1;
+      while IsNumber(strValue[nIndex]) do
+        Inc(nIndex);
+      Dec(nIndex);
+      if nIndex = 0 then
+        Exit(-1);
+
+      Result := StrToInt(strValue.Substring(0, nIndex));
+      strValue := strValue.Substring(nIndex);
+    end;
+begin
+  Result := '';
+  bFirst := True;
+  strAt := strName;
+  if Length(strName) >= 2 then
+    begin
+      if (strAt[1] = Char('_')) and (strAt[2] = Char('Z')) then
+        begin
+          strAt := strName.Substring(2);
+
+          while (Length(strAt) > 0) do
+            begin
+              if (strAt[1] = 'N') then
+                strAt := strAt.Substring(1)
+              else if strAt[1] = 'E' then
+                Break;
+              if not bFirst then
+                Result := Result + '.';
+              nValue := GetNumber(strAt);
+              if nValue = -1 then
+                begin
+                  Result := Result + strAt;
+                  Exit;
+                end;
+              Result := Result + strAt.Substring(0, nValue);
+              strAt := strAt.Substring(nValue);
+              bFirst := False;
+            end;
+        end;
+    end;
+end;
+
 procedure InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor);
 var
   pExecBuffer : PAnchorBuffer;
@@ -181,7 +228,7 @@ var
 begin
   New(pExecBuffer);
   pAnchor.ptrExecBuffer := pExecBuffer;
-  pAnchor.strName := strName;
+  pAnchor.strName := SanitizeName(strName);
 
   OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s', [pExecBuffer, strName])));
 
@@ -259,6 +306,7 @@ begin
   if Item is TJclDebugInfoTD32 then
     begin
       Image := GetBase(Item);
+
       For nIndex := 0 to Image.TD32Scanner.SourceModuleCount-1 do
         begin
           srcModule := Image.TD32Scanner.SourceModules[nIndex];
