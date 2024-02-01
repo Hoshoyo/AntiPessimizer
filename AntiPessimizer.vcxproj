@@ -108,7 +108,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>src/imgui</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/imgui;include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -124,7 +124,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>src/imgui</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>include;src/imgui</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -143,9 +143,17 @@
     <ClCompile Include="src\imgui\imgui_tables.cpp" />
     <ClCompile Include="src\imgui\imgui_widgets.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\string_utils.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\hpa.h" />
+    <ClInclude Include="include\datetime.h" />
+    <ClInclude Include="include\hoht.h" />
+    <ClInclude Include="include\hpa.h" />
+    <ClInclude Include="include\light_arena.h" />
+    <ClInclude Include="include\light_array.h" />
+    <ClInclude Include="include\meow_hash.h" />
+    <ClInclude Include="include\unicode.h" />
+    <ClInclude Include="src\antipessimizer.h" />
     <ClInclude Include="src\imgui\imconfig.h" />
     <ClInclude Include="src\imgui\imgui.h" />
     <ClInclude Include="src\imgui\imgui_impl_dx11.h" />
@@ -154,7 +162,7 @@
     <ClInclude Include="src\imgui\imstb_rectpack.h" />
     <ClInclude Include="src\imgui\imstb_textedit.h" />
     <ClInclude Include="src\imgui\imstb_truetype.h" />
-    <ClInclude Include="src\light_array.h" />
+    <ClInclude Include="src\string_utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

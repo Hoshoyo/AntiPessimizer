@@ -5,6 +5,7 @@ unit ExeLoader;
 interface
 uses
   Udis86,
+  JclTD32,
   Generics.Collections,
   Windows;
 
@@ -13,12 +14,12 @@ type
   PAnchorBuffer = ^TAnchorBuffer;
 
   function ProfilerCycleTime: String;
+  procedure ExeLoaderSendAllModules(pipe : THandle);
 
 implementation
 uses
   psAPI,
   CoreProfiler,
-  JclTD32,
   JCLDebug,
   RTTI,
   Classes,
@@ -287,6 +288,11 @@ begin
     end;
 end;
 
+function ProcNameFromSymbolInfo(Image : TJclPeBorTD32Image; Symbol : TJclTD32ProcSymbolInfo): String;
+begin
+  Result := Image.TD32Scanner.Names[Symbol.NameIndex];
+end;
+
 function ClassifyProcBySourceModule(Item: TJclDebugInfoSource; moduleBaseAddr : Uint64): TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
 var
   Image        : TJclPeBorTD32Image;
@@ -512,6 +518,51 @@ begin
   HookEpilogueException;
   g_LastHookedJump^ := EpilogueJump;
   Result := 0;
+end;
+
+procedure ExeLoaderSendAllModules(pipe : THandle);
+var
+  dcProcsByModule : TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
+  lstProcs  : TList<TJclTD32ProcSymbolInfo>;
+  Image     : TJclPeBorTD32Image;
+  Module    : HMODULE;
+  modInfo   : MODULEINFO;
+  Item      : TPair<String, TList<TJclTD32ProcSymbolInfo>>;
+  writer    : TBinaryWriter;
+  stream    : TMemoryStream;
+  nWritten  : Cardinal;
+  nIndex    : Integer;
+begin
+  if not g_bUdisLoaded then
+    Exit;
+
+  OutputDebugString('------------------- ExeLoaderSendAllModules ---------------------');
+
+  Module := GetModuleHandle(nil);
+  dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
+  GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
+
+  stream := TMemoryStream.Create;
+  writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
+
+  for Item in dcProcsByModule do
+    begin
+      OutputDebugString(PWidechar(Item.Key + ' Count=' + IntToStr(Item.Value.Count)));
+      writer.Write(Item.Key);
+      writer.Write(Integer(Item.Value.Count));
+      for nIndex := 0 to Item.Value.Count-1 do
+        writer.Write(ProcNameFromSymbolInfo(Image, Item.Value[nIndex]));
+    end;
+
+  OutputDebugString(PWidechar('Sending ' + IntToStr(dcProcsByModule.Count) + ' modules ' + IntToStr(stream.Size) + ' bytes written'));
+
+  writer.Free;
+
+  OutputDebugString(PWidechar(Format('          --- %d %d', [PByte(stream.Memory)^, (PByte(stream.Memory) + 1)^])));
+
+  WriteFile(pipe, PByte(stream.Memory)^, stream.Size, nWritten, nil);
+
+  stream.Free;
 end;
 
 procedure LoadVectoredExceptionHandling;

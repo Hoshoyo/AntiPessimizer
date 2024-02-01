@@ -1,18 +1,28 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <tchar.h>
 #include <stdio.h>
 #include <psapi.h>
 #include <stdint.h>
 
-#include "light_array.h"
+#include <light_array.h>
 #define HPA_IMPLEMENTATION
-#include "hpa.h"
+#include <hpa.h>
+
+extern "C" {
+#define UNICODE_CONVERT_IMPLEMENTATION
+#include "unicode.h"
+#include "string_utils.h"
+}
+
+#include "antipessimizer.h"
 
 #define MEGABYTE (1024*1024)
 
 struct Antipessimizer {
     bool loaded_necessary_inject_dlls = false;
     bool started = false;
+    bool running = false;
 
     HANDLE debugged_thread;
     STARTUPINFOA startup_info = { 0 };
@@ -34,6 +44,8 @@ struct Antipessimizer {
 };
 
 static Antipessimizer antip;
+
+void read_pipe_message();
 
 void injectcode(Antipessimizer* antip)
 {
@@ -107,6 +119,7 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                         if (!antip->started)
                         {
                             SuspendThread(antip->process_info.hThread);
+                            array_push(antip->suspended_threads, antip->process_info.hThread);
                         }
                     }
                 }
@@ -196,15 +209,17 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                 if (WriteProcessMemory(antip->process_info.hProcess,
                     (LPVOID)antip->entry_point, &antip->first_byte, 1, &written_bytes))
                 {
-                    ResumeThread(antip->process_info.hThread);
+                    //ResumeThread(antip->process_info.hThread);
                 }
 
+#if 0
                 // Can free every thread to run
                 for (int i = 0; i < array_length(antip->suspended_threads); ++i)
                     ResumeThread(antip->suspended_threads[i]);
                 array_clear(antip->suspended_threads);
 
                 printf("Releasing all threads to run!\n");
+#endif
             }
         } break;
         case EXIT_PROCESS_DEBUG_EVENT: {
@@ -267,15 +282,96 @@ antipessimizer_debug_thread(LPVOID param)
 }
 
 int 
-start_antipessimizer(const char* filepath)
+antipessimizer_start(const char* filepath)
+{
+    antip.running = true;
+
+    // Can free every thread to run
+    if (antip.suspended_threads)
+    {
+        for (int i = 0; i < array_length(antip.suspended_threads); ++i)
+            ResumeThread(antip.suspended_threads[i]);
+        array_clear(antip.suspended_threads);
+    }
+
+    printf("Releasing all threads to run!\n");
+    return 0;
+}
+
+int
+antipessimizer_load_exe(const char* filepath)
 {
     antip.pipe = CreateNamedPipeA("\\\\.\\pipe\\AntiPessimizerPipe", PIPE_ACCESS_DUPLEX, PIPE_NOWAIT, PIPE_UNLIMITED_INSTANCES,
         MEGABYTE, MEGABYTE, 0, 0);
     if (antip.pipe == INVALID_HANDLE_VALUE)
         return -1;
-
-    antip.debugged_thread = CreateThread(0, 0, antipessimizer_debug_thread, (LPVOID)filepath, 0, &antip.dbg_thread_id);    
+    antip.debugged_thread = CreateThread(0, 0, antipessimizer_debug_thread, (LPVOID)filepath, 0, &antip.dbg_thread_id);
     if (antip.debugged_thread == INVALID_HANDLE_VALUE)
         return -1;
     return 0;
+}
+
+int
+read_7bit_encoded_int(unsigned char** data)
+{
+    unsigned char* at = (unsigned char*)(*data);
+    int shift = 0;
+    int value = 0;
+    int result = 0;
+    do {
+        value = *at++;
+        result = result | ((value & 0x7f) << shift);
+        shift += 7;
+    } while ((value & 0x80) != 0);
+
+    (*data) = at;
+    return result;
+}
+
+static uint8_t buffer[1024 * 1024];
+extern Table g_module_table = {};
+
+void
+read_pipe_message()
+{
+    DWORD read_bytes = 0;
+
+    if (g_module_table.modules == 0)
+    {
+        g_module_table.modules = array_new(ExeModule);
+    }
+    
+    int bytes_to_read = 1024 * 1024;
+    ReadFile(antip.pipe, buffer, bytes_to_read, &read_bytes, 0);
+
+    uint8_t* at = buffer;
+    while (read_bytes > 0)
+    {
+        uint8_t* start = at;
+        int value = read_7bit_encoded_int(&at);
+        String module_name = ustr_new_len_c((char*)at, value);
+        at += value;
+
+        int proc_count = *(int*)at;
+        at += sizeof(int);
+
+        ExeModule em = { module_name, proc_count };
+
+        if (proc_count > 0)
+            em.procedures = array_new(String);
+
+        for (int i = 0; i < proc_count; ++i)
+        {
+            value = read_7bit_encoded_int(&at);
+            String proc = ustr_new_len_c((char*)at, value);
+            at += value;
+            array_push(em.procedures, proc);
+
+            printf("Procedure %d: %s\n", i, proc.data);
+        }
+        
+        array_push(g_module_table.modules, em);
+
+        read_bytes -= (at - start);
+    }
 }

@@ -37,16 +37,14 @@ function Worker(pParam : Pointer): DWORD; stdcall;
 var
   pipe : THandle;
   written : Cardinal;
-  pMem : Pointer;
 begin
-  pipe := CreateFileA('\\.\pipe\AntiPessimizerPipe', GENERIC_READ or GENERIC_WRITE, 0, 0,
+  pipe := CreateFileA('\\.\pipe\AntiPessimizerPipe', GENERIC_READ or GENERIC_WRITE, 0, nil,
     OPEN_EXISTING, 0, 0);
   OutputDebugString(PWidechar('Debug Thread Pipe=' + IntToStr(pipe)));
 
   if pipe <> INVALID_HANDLE_VALUE then
     begin
-      GetMem(pMem, 8192);
-      WriteFile(pipe, PPOinter(pMem)^, 8192, written, 0);
+      ExeLoaderSendAllModules(pipe);
       OutputDebugString(PWidechar('Debug Thread Written=' + IntToStr(written) + ' Error=' + SysErrorMessage(GetLastError)));
     end;
 

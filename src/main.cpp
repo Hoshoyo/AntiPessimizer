@@ -7,6 +7,13 @@
 #include <math.h>
 #include <stdio.h>
 
+extern "C" {
+#include "string_utils.h"
+#include <light_array.h>
+}
+
+#include "antipessimizer.h"
+
 // Data
 static ID3D11Device*            g_pd3dDevice = nullptr;
 static ID3D11DeviceContext*     g_pd3dDeviceContext = nullptr;
@@ -20,8 +27,6 @@ void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-int start_antipessimizer(const char* filepath);
 
 static void 
 DoExampleAppCustomRendering()
@@ -48,50 +53,71 @@ BOOL file_exists(char* szPath)
 static void
 SelectionWindow()
 {
-    static bool selected[10] = {};
+    read_pipe_message();
     static char process_filepath[MAX_PATH];
+    static int last_selected = -1;
 
     if (ImGui::Begin("Project"))
     {
-        ImGui::Columns(2, 0, false);
+        ImGui::Columns(3, 0, false);
         ImGui::Button("Browse...");
         ImGui::NextColumn();
-        if (ImGui::Button("Start Process") && file_exists(process_filepath))
+        if (ImGui::Button("Load Executable") && file_exists(process_filepath))
         {
-            start_antipessimizer(process_filepath);
+            antipessimizer_load_exe(process_filepath);
+        }
+        ImGui::NextColumn();
+        if (ImGui::Button("Run") && file_exists(process_filepath))
+        {
+            antipessimizer_start(process_filepath);
         }
         ImGui::Columns(1);
         ImGui::InputText("Filepath", process_filepath, sizeof(process_filepath));
 
-        if (ImGui::BeginTable("split1", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
+        if (ImGui::BeginTable("split1", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
         {
-            for (int i = 0; i < 10; i++)
+            if (g_module_table.modules)
             {
-                char label[32];
-                sprintf(label, "Item %d", i);
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::Selectable(label, &selected[i], ImGuiSelectableFlags_SpanAllColumns);
-                ImGui::TableNextColumn();
-                ImGui::Text("Some other contents");
-                ImGui::TableNextColumn();
-                ImGui::Text("123456");
+                for (int i = 0; i < array_length(g_module_table.modules); ++i)
+                {
+                    ExeModule* em = g_module_table.modules + i;
+
+                    bool selected = em->flags & EXE_MODULE_SELECTED;
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    if (ImGui::Selectable(em->name.data, &selected, ImGuiSelectableFlags_SpanAllColumns))
+                        last_selected = i;
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%d", em->proc_count);
+
+                    if (selected)
+                        em->flags |= EXE_MODULE_SELECTED;
+                    else
+                        em->flags &= ~(EXE_MODULE_SELECTED);
+                }
             }
             ImGui::EndTable();
         }
         ImGui::End();
     }
 
-    if (ImGui::Begin("Selected"))
+    if (ImGui::Begin("Procedures"))
     {
-        if (ImGui::BeginTable("split1", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
+        if (ImGui::BeginTable("split1", 1, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
         {
-            for (int i = 0; i < 10; i++)
+            if (g_module_table.modules != 0 && last_selected >= 0 && last_selected < array_length(g_module_table.modules))
             {
-                char label[32];
-                sprintf(label, "Item %d", i);
-                ImGui::TableNextColumn();
-                ImGui::Selectable(label, &selected[i]);
+                ExeModule* em = g_module_table.modules + last_selected;
+                String* procs = em->procedures;
+                if (procs)
+                {
+                    for (int i = 0; i < array_length(procs); ++i)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%s", procs[i].data);
+                    }
+                }
             }
             ImGui::EndTable();
         }
@@ -147,6 +173,9 @@ int main(int, char**)
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     //start_antipessimizer("C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe");
+
+    wstring_init_globals();
+    string_init_globals();
 
     // Main loop
     bool done = false;
