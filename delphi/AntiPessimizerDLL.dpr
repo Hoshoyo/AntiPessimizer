@@ -52,10 +52,9 @@ begin
     begin
       strProc := reader.ReadString;
       Result.Add(strProc);
-      OutputDebugString(PWidechar('Read from pipe proc ' + strProc));
     end;
 
-  OutputDebugString(PWidechar('Finished reading command from pipe'));
+  OutputDebugString(PWidechar('Finished reading command from pipe ' + IntToStr(nProcCount) + ' procedures.'));
   reader.Free;
 end;
 
@@ -106,8 +105,7 @@ begin
   lstProcsToInstrument.Free;
   dicProcsSent.Free;
 
-  //InstrumentProcs(lstProcToInstrumentInfo);
-  InstrumentModuleProcs;
+  InstrumentProcs(lstProcToInstrumentInfo);
 
   OutputDebugString(PWidechar('AntiPessimizerReady'));
 
@@ -124,6 +122,5 @@ var
 begin
   OutputDebugString(PWidechar('AntiPessimizer started on ' + GetCurrentDir));
   CreateThread(nil, 0, @Worker, nil, 0, thID);
-
   OutputDebugString(PWidechar('AntiPessimizerStartup ' + IntToStr(thID)));
 end.

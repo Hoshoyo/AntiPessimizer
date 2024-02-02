@@ -400,11 +400,15 @@ var
   pDhTable  : Pointer;
   nIndex    : Integer;
   ipInfo    : TInstrumentedProc;
+  Module    : HMODULE;
 begin
   if not g_bUdisLoaded then
     Exit;
 
   OutputDebugString('------------------- Instrumenting procedures ---------------------');
+
+  Module := GetModuleHandle(nil);
+  GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
 
   // Find lowest and highest address to make the hash table
   nLowProc := $FFFFFFFFFFFFFFFF;
@@ -583,12 +587,9 @@ begin
 
   OutputDebugString(PWidechar('Sending ' + IntToStr(dcProcsByModule.Count) + ' modules ' + IntToStr(stream.Size) + ' bytes written'));
 
-  writer.Free;
-
-  OutputDebugString(PWidechar(Format('          --- %d %d', [PByte(stream.Memory)^, (PByte(stream.Memory) + 1)^])));
-
   WriteFile(pipe, PByte(stream.Memory)^, stream.Size, nWritten, nil);
 
+  writer.Free;
   stream.Free;
 end;
 

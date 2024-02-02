@@ -438,8 +438,6 @@ read_pipe_message()
 
             InstrumentedProcedure iproc = { proc, demangled };
             array_push(em.procedures, iproc);
-
-            printf("Procedure %d: %s\n", i, proc.data);
         }
         
         array_push(g_module_table.modules, em);
