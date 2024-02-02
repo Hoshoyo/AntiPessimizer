@@ -108,14 +108,14 @@ SelectionWindow()
             if (g_module_table.modules != 0 && last_selected >= 0 && last_selected < array_length(g_module_table.modules))
             {
                 ExeModule* em = g_module_table.modules + last_selected;
-                String* procs = em->procedures;
+                InstrumentedProcedure* procs = em->procedures;
                 if (procs)
                 {
                     for (int i = 0; i < array_length(procs); ++i)
                     {
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
-                        ImGui::Text("%s", procs[i].data);
+                        ImGui::Text("%s", procs[i].demangled_name.data);
                     }
                 }
             }

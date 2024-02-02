@@ -19,6 +19,11 @@ extern "C" {
 
 #define MEGABYTE (1024*1024)
 
+struct RemoteThread {
+    HANDLE handle;
+    DWORD id;
+};
+
 struct Antipessimizer {
     bool loaded_necessary_inject_dlls = false;
     bool started = false;
@@ -31,9 +36,10 @@ struct Antipessimizer {
     uint8_t first_byte = 0;
     DWORD64 entry_point = 0;
 
-    HANDLE* suspended_threads;
+    RemoteThread* suspended_threads;
 
     HANDLE pipe = 0;
+    void* send_buffer = 0;
 
     DWORD remote_thread_id = 0;
 
@@ -118,8 +124,9 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
 
                         if (!antip->started)
                         {
+                            RemoteThread rt = { antip->process_info.hThread, antip->process_info.dwThreadId };
                             SuspendThread(antip->process_info.hThread);
-                            array_push(antip->suspended_threads, antip->process_info.hThread);
+                            array_push(antip->suspended_threads, rt);
                         }
                     }
                 }
@@ -160,7 +167,8 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
             else if (!antip->started)
             {
                 // this is any other thread, just suspend until antipessimizer is ready
-                array_push(antip->suspended_threads, dbg_event.u.CreateThread.hThread);
+                RemoteThread rt = { dbg_event.u.CreateThread.hThread, dbg_event.dwThreadId };
+                array_push(antip->suspended_threads, rt);
                 SuspendThread(dbg_event.u.CreateThread.hThread);
             }
         } break;
@@ -202,6 +210,11 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                 hpa_parse_whitespace(&at);
                 int rem_worker_id = hpa_parse_int32(&at);
 
+                for (int i = 0; i < array_length(antip->suspended_threads); ++i) {
+                    if(antip->suspended_threads[i].id == rem_worker_id)
+                        ResumeThread(antip->suspended_threads[i].handle);
+                }
+
                 antip->started = true;
 
                 // Remove the breakpoint from the main thread and let it run
@@ -220,6 +233,22 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
 
                 printf("Releasing all threads to run!\n");
 #endif
+            }
+
+            klen = hpa_parse_keyword(&at, "AntiPessimizerReady");
+            if (klen > 0)
+            {
+                antip->running = true;
+
+                // Can free every thread to run
+                if (antip->suspended_threads)
+                {
+                    for (int i = 0; i < array_length(antip->suspended_threads); ++i)
+                        ResumeThread(antip->suspended_threads[i].handle);
+                    array_clear(antip->suspended_threads);
+                }
+
+                printf("Releasing all threads to run!\n");
             }
         } break;
         case EXIT_PROCESS_DEBUG_EVENT: {
@@ -266,7 +295,7 @@ antipessimizer_debug_thread(LPVOID param)
     BOOL proc_created = CreateProcessA(filepath, 0, 0, 0, FALSE, DEBUG_PROCESS,
         0, 0, &antip.startup_info, &antip.process_info);
 
-    antip.suspended_threads = array_new(HANDLE);
+    antip.suspended_threads = array_new(RemoteThread);
 
     while (true)
     {
@@ -281,23 +310,6 @@ antipessimizer_debug_thread(LPVOID param)
     TerminateProcess(antip.process_info.hProcess, 0);
 }
 
-int 
-antipessimizer_start(const char* filepath)
-{
-    antip.running = true;
-
-    // Can free every thread to run
-    if (antip.suspended_threads)
-    {
-        for (int i = 0; i < array_length(antip.suspended_threads); ++i)
-            ResumeThread(antip.suspended_threads[i]);
-        array_clear(antip.suspended_threads);
-    }
-
-    printf("Releasing all threads to run!\n");
-    return 0;
-}
-
 int
 antipessimizer_load_exe(const char* filepath)
 {
@@ -309,6 +321,21 @@ antipessimizer_load_exe(const char* filepath)
     if (antip.debugged_thread == INVALID_HANDLE_VALUE)
         return -1;
     return 0;
+}
+
+int
+write_7bit_encoded_int(int value, char* buffer)
+{
+    char* start = buffer;
+    do {
+        if (value > 0x7f)
+            *buffer = ((uint8_t)(value & 0x7f)) | 0x80;
+        else
+            *buffer = (uint8_t)value;
+        value = value >> 7;
+        buffer++;
+    } while (value);
+    return (int)(buffer - start);
 }
 
 int
@@ -330,6 +357,45 @@ read_7bit_encoded_int(unsigned char** data)
 
 static uint8_t buffer[1024 * 1024];
 extern Table g_module_table = {};
+
+int
+antipessimizer_start(const char* filepath)
+{
+    if (antip.send_buffer == 0)
+        antip.send_buffer = calloc(1, 1024 * 1024);
+
+    char* at = (char*)antip.send_buffer;
+
+    if (g_module_table.modules)
+    {
+        for (int i = 0; i < array_length(g_module_table.modules); ++i)
+        {
+            ExeModule* em = g_module_table.modules + i;
+            if (em->flags & EXE_MODULE_SELECTED && em->procedures)
+            {
+                int proc_count = array_length(em->procedures);
+                *(int*)at = proc_count;
+                at += sizeof(int);
+
+                //WriteFile(antip.pipe, &proc_count, sizeof(int), &written, 0);
+                for (int k = 0; k < array_length(em->procedures); ++k)
+                {
+                    InstrumentedProcedure* ip = em->procedures + k;
+                    int len = write_7bit_encoded_int(ip->name.length, at);
+                    at += len;
+
+                    memcpy(at, ip->name.data, ip->name.length);
+                    at += ip->name.length;
+                }
+            }
+        }
+        DWORD written = 0;
+        WriteFile(antip.pipe, antip.send_buffer, at - antip.send_buffer, &written, 0);
+        printf("Sent %d bytes to pipe\n", at - antip.send_buffer);
+    }
+
+    return 0;
+}
 
 void
 read_pipe_message()
@@ -358,14 +424,20 @@ read_pipe_message()
         ExeModule em = { module_name, proc_count };
 
         if (proc_count > 0)
-            em.procedures = array_new(String);
+            em.procedures = array_new(InstrumentedProcedure);
 
         for (int i = 0; i < proc_count; ++i)
         {
             value = read_7bit_encoded_int(&at);
             String proc = ustr_new_len_c((char*)at, value);
             at += value;
-            array_push(em.procedures, proc);
+
+            value = read_7bit_encoded_int(&at);
+            String demangled = ustr_new_len_c((char*)at, value);
+            at += value;
+
+            InstrumentedProcedure iproc = { proc, demangled };
+            array_push(em.procedures, iproc);
 
             printf("Procedure %d: %s\n", i, proc.data);
         }

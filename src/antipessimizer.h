@@ -4,9 +4,14 @@
 #define EXE_MODULE_SELECTED (1 << 0)
 
 typedef struct {
+    String name;
+    String demangled_name;
+} InstrumentedProcedure;
+
+typedef struct {
     String   name;
     int      proc_count;
-    String*  procedures;
+    InstrumentedProcedure*  procedures;
     uint32_t flags;
 } ExeModule;
 

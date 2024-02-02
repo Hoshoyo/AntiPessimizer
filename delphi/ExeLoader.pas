@@ -13,11 +13,19 @@ type
   TAnchorBuffer = array [0..63] of Byte;
   PAnchorBuffer = ^TAnchorBuffer;
 
+  TInstrumentedProc = record
+    strName  : String;
+    procInfo : TJclTD32ProcSymbolInfo;
+  end;
+
   function ProfilerCycleTime: String;
-  procedure ExeLoaderSendAllModules(pipe : THandle);
+  function  ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;
+  procedure InstrumentModuleProcs;
+  procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
 
 implementation
 uses
+  JclPeImage,
   psAPI,
   CoreProfiler,
   JCLDebug,
@@ -167,59 +175,6 @@ begin
   Result := PJclPeBorTD32Image(Pointer(NativeInt(obj) + MemberVarOffset))^;
 end;
 
-function SanitizeName(strName : String): String;
-var
-  nValue : Integer;
-  nIndex : Integer;
-  strAt  : String;
-  bFirst : Boolean;
-
-  function GetNumber(var strValue : String): Integer;
-    var
-      nIndex : Integer;
-    begin
-      nIndex := 1;
-      while IsNumber(strValue[nIndex]) do
-        Inc(nIndex);
-      Dec(nIndex);
-      if nIndex = 0 then
-        Exit(-1);
-
-      Result := StrToInt(strValue.Substring(0, nIndex));
-      strValue := strValue.Substring(nIndex);
-    end;
-begin
-  Result := '';
-  bFirst := True;
-  strAt := strName;
-  if Length(strName) >= 2 then
-    begin
-      if (strAt[1] = Char('_')) and (strAt[2] = Char('Z')) then
-        begin
-          strAt := strName.Substring(2);
-
-          while (Length(strAt) > 0) do
-            begin
-              if (strAt[1] = 'N') then
-                strAt := strAt.Substring(1)
-              else if strAt[1] = 'E' then
-                Break;
-              if not bFirst then
-                Result := Result + '.';
-              nValue := GetNumber(strAt);
-              if nValue = -1 then
-                begin
-                  Result := Result + strAt;
-                  Exit;
-                end;
-              Result := Result + strAt.Substring(0, nValue);
-              strAt := strAt.Substring(nValue);
-              bFirst := False;
-            end;
-        end;
-    end;
-end;
-
 procedure InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor);
 var
   pExecBuffer : PAnchorBuffer;
@@ -229,7 +184,7 @@ var
 begin
   New(pExecBuffer);
   pAnchor.ptrExecBuffer := pExecBuffer;
-  pAnchor.strName := SanitizeName(strName);
+  pAnchor.strName := strName;
 
   OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s', [pExecBuffer, strName])));
 
@@ -290,7 +245,7 @@ end;
 
 function ProcNameFromSymbolInfo(Image : TJclPeBorTD32Image; Symbol : TJclTD32ProcSymbolInfo): String;
 begin
-  Result := Image.TD32Scanner.Names[Symbol.NameIndex];
+  Result := String(Image.TD32Scanner.Names[Symbol.NameIndex]);
 end;
 
 function ClassifyProcBySourceModule(Item: TJclDebugInfoSource; moduleBaseAddr : Uint64): TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
@@ -316,7 +271,7 @@ begin
       For nIndex := 0 to Image.TD32Scanner.SourceModuleCount-1 do
         begin
           srcModule := Image.TD32Scanner.SourceModules[nIndex];
-          strName := Image.TD32Scanner.Names[srcModule.NameIndex];
+          strName := String(Image.TD32Scanner.Names[srcModule.NameIndex]);
           lstProcs := TList<TJclTD32ProcSymbolInfo>.Create;
 
           for nSeg := 0 to srcModule.SegmentCount-1 do
@@ -364,7 +319,7 @@ begin
       For nIndex := 0 to Image.TD32Scanner.ModuleCount-1 do
         begin
           modInfo := Image.TD32Scanner.Modules[nIndex];
-          strName := Image.TD32Scanner.Names[modInfo.NameIndex];
+          strName := String(Image.TD32Scanner.Names[modInfo.NameIndex]);
           lstProcs := TList<TJclTD32ProcSymbolInfo>.Create;
 
           for nSeg := 0 to modInfo.SegmentCount-1 do
@@ -433,6 +388,71 @@ begin
     Result := nil;
 end;
 
+procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
+var
+  pProcAddr : Pointer;
+  modInfo   : MODULEINFO;
+  strName   : String;
+  nLowProc  : Uint64;
+  nHighProc : Uint64;
+  nSize     : Uint64;
+  nLastAddr : Uint64;
+  pDhTable  : Pointer;
+  nIndex    : Integer;
+  ipInfo    : TInstrumentedProc;
+begin
+  if not g_bUdisLoaded then
+    Exit;
+
+  OutputDebugString('------------------- Instrumenting procedures ---------------------');
+
+  // Find lowest and highest address to make the hash table
+  nLowProc := $FFFFFFFFFFFFFFFF;
+  nHighProc := 0;
+  for ipInfo in lstProcs do
+    begin
+      pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + ipInfo.procInfo.Offset + c_nModuleCodeOffset);
+
+      if Uint64(pProcAddr) < nLowProc then
+        nLowProc := Uint64(pProcAddr);
+      if Uint64(pProcAddr) > nHighProc then
+        nHighProc := Uint64(pProcAddr);
+    end;
+
+  // After finding it allocate the memory needed
+  if (nLowProc <> $FFFFFFFFFFFFFFFF) and (nHighProc <> 0) and (nHighProc > nLowProc) then
+    begin
+      nSize := nHighProc - nLowProc;
+      pDhTable := AllocMem(nSize + 2 * sizeof(TProfileAnchor));
+      pDhTable := PByte(pDhTable) + sizeof(TProfileAnchor);
+      ZeroMemory(pDhTable, nSize + 2 * sizeof(TProfileAnchor));
+      InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
+
+      SetLength(g_DHArrProcedures, lstProcs.Count);
+      ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
+      nIndex := 0;
+      nLastAddr := 0;
+      for ipInfo in lstProcs do
+        begin
+          pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + ipInfo.procInfo.Offset + c_nModuleCodeOffset);
+          strName := ipInfo.strName;
+
+          if (Uint64(pProcAddr) - nLastAddr) >= sizeof(TProfileAnchor) then
+            begin
+              g_DHArrProcedures[nIndex] := pProcAddr;
+
+              OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + ']'));
+              InstrumentFunction(strName, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
+            end;
+          Inc(nIndex);
+
+          nLastAddr := UInt64(pProcAddr);
+        end;
+    end;
+
+  OutputDebugString('End of instrumentation');
+end;
+
 procedure InstrumentModuleProcs;
 var
   dcProcsByModule : TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
@@ -494,7 +514,7 @@ begin
           for procInfo in lstProcs do
             begin
               pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
-              strName := Image.TD32Scanner.Names[procInfo.NameIndex];
+              strName := String(Image.TD32Scanner.Names[procInfo.NameIndex]);
 
               if (Uint64(pProcAddr) - nLastAddr) >= sizeof(TProfileAnchor) then
                 begin
@@ -520,10 +540,9 @@ begin
   Result := 0;
 end;
 
-procedure ExeLoaderSendAllModules(pipe : THandle);
+function ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;
 var
   dcProcsByModule : TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
-  lstProcs  : TList<TJclTD32ProcSymbolInfo>;
   Image     : TJclPeBorTD32Image;
   Module    : HMODULE;
   modInfo   : MODULEINFO;
@@ -532,9 +551,10 @@ var
   stream    : TMemoryStream;
   nWritten  : Cardinal;
   nIndex    : Integer;
+  strName   : String;
 begin
   if not g_bUdisLoaded then
-    Exit;
+    Exit(nil);
 
   OutputDebugString('------------------- ExeLoaderSendAllModules ---------------------');
 
@@ -545,13 +565,20 @@ begin
   stream := TMemoryStream.Create;
   writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
 
+  Result := TDictionary<String, TJclTD32ProcSymbolInfo>.Create;
+
   for Item in dcProcsByModule do
     begin
       OutputDebugString(PWidechar(Item.Key + ' Count=' + IntToStr(Item.Value.Count)));
       writer.Write(Item.Key);
       writer.Write(Integer(Item.Value.Count));
       for nIndex := 0 to Item.Value.Count-1 do
-        writer.Write(ProcNameFromSymbolInfo(Image, Item.Value[nIndex]));
+        begin
+          strName := ProcNameFromSymbolInfo(Image, Item.Value[nIndex]);
+          Result.AddOrSetValue(strName, Item.Value[nIndex]);
+          writer.Write(strName);
+          writer.Write(PeBorUnmangleName(strName));
+        end;
     end;
 
   OutputDebugString(PWidechar('Sending ' + IntToStr(dcProcsByModule.Count) + ' modules ' + IntToStr(stream.Size) + ' bytes written'));
@@ -578,6 +605,5 @@ end;
 
 initialization
   LoadVectoredExceptionHandling;
-  InstrumentModuleProcs;
 
 end.
