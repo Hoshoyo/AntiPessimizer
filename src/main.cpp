@@ -54,13 +54,16 @@ static void
 SelectionWindow()
 {
     read_pipe_message();
-    static char process_filepath[MAX_PATH];
+    static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
     static int last_selected = -1;
 
     if (ImGui::Begin("Project"))
     {
         ImGui::Columns(3, 0, false);
-        ImGui::Button("Browse...");
+        if (ImGui::Button("Browse..."))
+        {
+            antipessimizer_stop();            
+        }
         ImGui::NextColumn();
         if (ImGui::Button("Load Executable") && file_exists(process_filepath))
         {

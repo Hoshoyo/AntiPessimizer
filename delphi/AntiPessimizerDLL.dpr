@@ -100,7 +100,10 @@ begin
     begin
       ipInfo.strName := strProc;
       if dicProcsSent.TryGetValue(strProc, ipInfo.procInfo) then
-        lstProcToInstrumentInfo.Add(ipInfo);
+        begin
+          lstProcToInstrumentInfo.Add(ipInfo);
+          OutputDebugString(PWidechar('ADDED ' + ipInfo.strName));
+        end;
     end;
   lstProcsToInstrument.Free;
   dicProcsSent.Free;

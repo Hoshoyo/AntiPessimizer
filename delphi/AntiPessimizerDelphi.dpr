@@ -11,6 +11,7 @@ uses
   JclTD32,
   System.Classes,
   StrUtils,
+  Math,
   ExeLoader in 'ExeLoader.pas',
   CoreProfiler in 'CoreProfiler.pas',
   Utils in 'Utils.pas',
@@ -38,6 +39,29 @@ function TestClass.TestProc: Integer;
 begin
   //Writeln('test');
   Result := 32;
+end;
+
+function BeSlowInternal: Int64; stdcall;
+begin
+  Result := 45 * 32 + 123;
+  Inc(Result);
+  Dec(Result);
+
+  if Result > 32655 then
+    Result := Result div 3;
+end;
+
+function JustBeSlow: Int64;
+var
+  nIndex: Integer;
+  nSum : Int64;
+begin
+  nSum := 0;
+  for nIndex := 0 to 100000 do
+    nSum := nSum + nIndex;
+  Result := nSum + BeSlowInternal;
+  nSum := nSum - 18578;
+  Result := Math.Max(nSum, Result);
 end;
 
 procedure DoAnException;
@@ -88,7 +112,11 @@ begin
   tc := TestClass.Create;
   tb := TestBase.Create;
 
-  CatchException;
+  JustBeSlow;
+
+  BeSlowInternal;
+
+  //CatchException;
 
   for nIndex := 0 to 10000 do
     begin
@@ -106,6 +134,7 @@ begin
 end;
 
 begin
+  InstrumentModuleProcs;
   TestFunction;
   //PrintProfilerResults;
   PrintDHProfilerResults;

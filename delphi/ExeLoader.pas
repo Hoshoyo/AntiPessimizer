@@ -69,10 +69,10 @@ procedure HookEpilogue;
 asm
   .noframe
   push rax
-  sub rsp, 32
+  sub rsp, 40
   //call ExitProfileBlock  // Returns the address where we need to jump back
   call DHExitProfileBlock  // Returns the address where we need to jump back
-  add rsp, 32
+  add rsp, 40
   mov rcx, rax // Use rcx since rax is the return value
 
   pop rax
@@ -82,10 +82,10 @@ end;
 procedure HookEpilogueException;
 asm
   .noframe
-  sub rsp, 32
+  sub rsp, 40
   //call ExitProfileBlock
   call DHExitProfileBlock
-  add rsp, 32
+  add rsp, 40
 end;
 
 procedure HookJump;
@@ -130,10 +130,10 @@ asm
     add r10, rax  // go back to the position after the buffered execution
     push r10
 
-    sub rsp, 32
+    sub rsp, 40
     //call EnterProfileBlock
     call DHEnterProfileBlock
-    add rsp, 32
+    add rsp, 40
 
     pop r10
     pop r11
@@ -186,7 +186,7 @@ begin
   pAnchor.ptrExecBuffer := pExecBuffer;
   pAnchor.strName := strName;
 
-  OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s', [pExecBuffer, strName])));
+  OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s Addr=%p', [pExecBuffer, strName, pProcAddr])));
 
   VirtualProtect(Pointer(pExecBuffer), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
@@ -434,21 +434,25 @@ begin
 
       SetLength(g_DHArrProcedures, lstProcs.Count);
       ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
-      nIndex := 0;
-      nLastAddr := 0;
-      for ipInfo in lstProcs do
-        begin
-          pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + ipInfo.procInfo.Offset + c_nModuleCodeOffset);
-          strName := ipInfo.strName;
 
-          if (Uint64(pProcAddr) - nLastAddr) >= sizeof(TProfileAnchor) then
+      nLastAddr := $7FFFFFFFFFFFFFFF;
+      for nIndex := lstProcs.Count-1 downto 0 do
+        begin
+          ipInfo := lstProcs[nIndex];
+          pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + ipInfo.procInfo.Offset + c_nModuleCodeOffset);
+          strName := ipInfo.strName;            
+
+          if (nLastAddr - Uint64(pProcAddr)) >= sizeof(TProfileAnchor) then
             begin
               g_DHArrProcedures[nIndex] := pProcAddr;
 
-              OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + ']'));
+              OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + '}'));
               InstrumentFunction(strName, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
+            end
+          else
+            begin
+              OutputDebugString(PWidechar('Could not instrument function ' + strName + ' too small ' + Uint64(pProcAddr).ToString + ' ' + nLastAddr.ToString));
             end;
-          Inc(nIndex);
 
           nLastAddr := UInt64(pProcAddr);
         end;
@@ -513,21 +517,25 @@ begin
 
           SetLength(g_DHArrProcedures, lstProcs.Count);
           ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
-          nIndex := 0;
-          nLastAddr := 0;
-          for procInfo in lstProcs do
+
+          nLastAddr := $7FFFFFFFFFFFFFFF;
+          for nIndex := lstProcs.Count-1 downto 0 do
             begin
+              procInfo := lstProcs[nIndex];
               pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
               strName := String(Image.TD32Scanner.Names[procInfo.NameIndex]);
 
-              if (Uint64(pProcAddr) - nLastAddr) >= sizeof(TProfileAnchor) then
+              if (nLastAddr - Uint64(pProcAddr)) >= sizeof(TProfileAnchor) then
                 begin
                   g_DHArrProcedures[nIndex] := pProcAddr;
 
-                  OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + ']'));
+                  OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + '}'));
                   InstrumentFunction(strName, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
+                end
+              else
+                begin
+                  OutputDebugString(PWidechar('Could not instrument function ' + strName + ' too small ' + Uint64(pProcAddr).ToString + ' ' + nLastAddr.ToString));
                 end;
-              Inc(nIndex);
 
               nLastAddr := UInt64(pProcAddr);
             end;

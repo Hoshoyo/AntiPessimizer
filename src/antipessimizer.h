@@ -24,3 +24,4 @@ extern Table g_module_table;
 int antipessimizer_start(const char* filepath);
 int antipessimizer_load_exe(const char* filepath);
 void read_pipe_message();
+int antipessimizer_stop();

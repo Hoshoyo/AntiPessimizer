@@ -113,7 +113,7 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
             {
             case EXCEPTION_BREAKPOINT: {
                 CONTEXT thctx = { 0 };
-                thctx.ContextFlags = CONTEXT_ALL;
+                thctx.ContextFlags = CONTEXT_ALL;                
 
                 if (GetThreadContext(antip->process_info.hThread, &thctx))
                 {
@@ -248,7 +248,7 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                     array_clear(antip->suspended_threads);
                 }
 
-                printf("Releasing all threads to run!\n");
+                printf("Releasing all threads to run!\n");                
             }
         } break;
         case EXIT_PROCESS_DEBUG_EVENT: {
@@ -285,6 +285,8 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
         dwContinueStatus);
 }
 
+static bool debugging = true;
+
 static DWORD WINAPI 
 antipessimizer_debug_thread(LPVOID param)
 {
@@ -301,13 +303,20 @@ antipessimizer_debug_thread(LPVOID param)
     {
         DEBUG_EVENT dbg_event = { 0 };
 
-        if (WaitForDebugEvent(&dbg_event, INFINITE))
+        if (WaitForDebugEvent(&dbg_event, 100))
         {
             antipessimizer_process_next_debug_event(&antip, dbg_event);
         }
+
+        if (!debugging)
+        {
+            DebugActiveProcessStop(antip.process_info.dwProcessId);
+            break;
+        }
     }
 
-    TerminateProcess(antip.process_info.hProcess, 0);
+    //TerminateProcess(antip.process_info.hProcess, 0);
+    return 0;
 }
 
 int
@@ -320,6 +329,13 @@ antipessimizer_load_exe(const char* filepath)
     antip.debugged_thread = CreateThread(0, 0, antipessimizer_debug_thread, (LPVOID)filepath, 0, &antip.dbg_thread_id);
     if (antip.debugged_thread == INVALID_HANDLE_VALUE)
         return -1;
+    return 0;
+}
+
+int
+antipessimizer_stop()
+{
+    debugging = false;
     return 0;
 }
 
