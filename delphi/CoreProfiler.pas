@@ -61,6 +61,7 @@ type
 var
   EpilogueJump : Pointer; // TODO(psv): Make it Thread safe
   g_DHArrProcedures  : array of Pointer;
+  g_Pipe : THandle;
 
 implementation
 uses
@@ -73,6 +74,7 @@ var
   g_DHTableProfiler  : Pointer;
   g_DHProfileStack   : TDHProfilerStack;
   g_nCyclesPerSecond : Int64;
+  g_ThreadID : Integer = 0;
 
 procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
 begin
@@ -90,6 +92,11 @@ var
   pBlock       : PDHProfileBlock;
   nAtIdx       : Integer;
 begin
+  if g_ThreadID = 0 then
+    g_ThreadID := GetCurrentThreadID
+  else if g_ThreadID <> GetCurrentThreadID then
+    LogDebug('ANOTHER THREAD !!!!', []);
+
   Inc(g_DHProfileStack.nAtIndex);
   nAtIdx := g_DHProfileStack.nAtIndex;
 
@@ -234,5 +241,4 @@ end;
 
 initialization
   CallibrateTimeStamp;
-
 end.

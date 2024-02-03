@@ -9,6 +9,9 @@
 #define HPA_IMPLEMENTATION
 #include <hpa.h>
 
+#define MAX(A, B) (((A) > (B)) ? (A) : (B))
+#define MIN(A, B) (((A) < (B)) ? (A) : (B))
+
 extern "C" {
 #define UNICODE_CONVERT_IMPLEMENTATION
 #include "unicode.h"
@@ -220,9 +223,9 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
             break;
         case OUTPUT_DEBUG_STRING_EVENT: {
             SIZE_T bytesread = 0;
-            char buffer[1024] = { 0 };
+            char buffer[4096] = { 0 };
             ReadProcessMemory(antip->process_info.hProcess,
-                dbg_event.u.DebugString.lpDebugStringData, buffer, dbg_event.u.DebugString.nDebugStringLength, &bytesread);
+                dbg_event.u.DebugString.lpDebugStringData, buffer, MIN(dbg_event.u.DebugString.nDebugStringLength, 4096), &bytesread);
             printf("%.*s\n", (int)bytesread, buffer);
 
             const char* at = buffer;
@@ -343,7 +346,7 @@ int
 antipessimizer_load_exe(const char* filepath)
 {
     antip.pipe = CreateNamedPipeA("\\\\.\\pipe\\AntiPessimizerPipe", PIPE_ACCESS_DUPLEX, PIPE_NOWAIT, PIPE_UNLIMITED_INSTANCES,
-        MEGABYTE, MEGABYTE, 0, 0);
+        64 * MEGABYTE, 64 * MEGABYTE, 0, 0);
     if (antip.pipe == INVALID_HANDLE_VALUE)
         return -1;
     antip.debugged_thread = CreateThread(0, 0, antipessimizer_debug_thread, (LPVOID)filepath, 0, &antip.dbg_thread_id);
@@ -398,7 +401,7 @@ int
 antipessimizer_start(const char* filepath)
 {
     if (antip.send_buffer == 0)
-        antip.send_buffer = calloc(1, 1024 * 1024);
+        antip.send_buffer = calloc(64, 1024 * 1024);
 
     char* at = (char*)antip.send_buffer;
     uint32_t* size = (uint32_t*)at;
@@ -413,6 +416,15 @@ antipessimizer_start(const char* filepath)
             ExeModule* em = g_module_table.modules + i;
             if (em->flags & EXE_MODULE_SELECTED && em->procedures)
             {
+                for (int k = array_length(em->procedures) - 1; k >= 0; --k)
+                {
+                    InstrumentedProcedure* ip = em->procedures + k;
+                    if (string_has_prefix_char((char*)"System.", ip->demangled_name))
+                    {
+                        array_remove(em->procedures, k);
+                    }
+                }
+
                 int proc_count = array_length(em->procedures);
                 *(int*)at = proc_count;
                 at += sizeof(int);
@@ -535,7 +547,7 @@ read_pipe_message()
 
     if (antip.recv_buffer == 0) 
     {
-        antip.recv_buffer = arena_create(1024 * 1024);
+        antip.recv_buffer = arena_create(64 * 1024 * 1024);
     }
 
     while (ReadFile(antip.pipe, &size_to_read, sizeof(uint32_t), &read_bytes, 0))

@@ -47,6 +47,8 @@ begin
 end;
 
 var
+  pipe  : THandle;
+  g_PrevDllProc : procedure (Reason: Integer);
   g_RecvCommandBuffer : array [0..1024*1024-1] of Byte;
 
 procedure ProcessInstrumentationCommand(cmd : TCommand; state : PDebuggeeState);
@@ -163,7 +165,7 @@ end;
 
 function Worker(pParam : Pointer): DWORD; stdcall;
 var
-  pipe  : THandle;
+
   state : TDebuggeeState;
   cmd   : TCommand;
 begin
@@ -185,15 +187,29 @@ begin
       ctInstrumetProcedures: ProcessInstrumentationCommand(cmd, @state);
       ctProfilingData:       ProcessSendResults(pipe);
     end;
-  until cmd.ctType = ctEnd;
+  until (cmd.ctType = ctEnd);
 
   Result := 0;
+end;
+
+procedure DLLHandler(Reason: Integer);
+begin
+  if Reason = DLL_PROCESS_DETACH then
+    begin
+      ProcessSendResults(pipe);
+    end;
+  LogDebug('DLL Event %d', [Reason]);
+  if @g_PrevDllProc <> nil then
+    g_PrevDllProc(Reason);
 end;
 
 var
   thID : DWORD;
 begin
   OutputDebugString(PWidechar('AntiPessimizer started on ' + GetCurrentDir));
+  @g_PrevDllProc := @DLLProc;
+  @DLLProc := @DLLHandler;
+
   CreateThread(nil, 0, @Worker, nil, 0, thID);
   OutputDebugString(PWidechar('AntiPessimizerStartup ' + IntToStr(thID)));
 end.

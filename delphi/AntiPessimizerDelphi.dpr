@@ -143,12 +143,23 @@ begin
   PrintAStatement;
 end;
 
+var
+  lstStack : TJclStackInfoList;
+  nValue : Integer;
+  strList : TStringList;
 begin
   InstrumentModuleProcs;
 
   TestFunction;
   //PrintProfilerResults;
   PrintDHProfilerResults;
+
+  strList := TStringList.Create;
+
+  lstStack := JclCreateStackList(True, 0, nil);
+  lstStack.AddToStrings(strList, False, False, True);
+
+  Writeln(strList.Text);
 
   Writeln('Profiler took ' + ProfilerCycleTime + ' cycles on average');
 end.

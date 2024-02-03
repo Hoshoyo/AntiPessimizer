@@ -47,6 +47,7 @@ type
 
 implementation
 uses
+  Utils,
   JclPeImage,
   psAPI,
   CoreProfiler,
@@ -91,7 +92,7 @@ asm
   jmp rcx
 end;
 
-procedure HookEpilogueException;
+function HookEpilogueException: Pointer;
 asm
   .noframe
   sub rsp, 40
@@ -351,7 +352,7 @@ begin
             end;
           Result.AddOrSetValue(strName, lstProcs);
           
-          Writeln(Format('Module %s has %d procedures.', [strName, lstProcs.Count]));
+          //Writeln(Format('Module %s has %d procedures.', [strName, lstProcs.Count]));
         end;
     end;
 end;
@@ -552,11 +553,21 @@ begin
 end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
+var
+  lstStack : TJclStackInfoList;
+  lstStrings : TStringList;
 begin
-  OutputDebugString('VectoredExceptionHandler!');
-  HookEpilogueException;
-  g_LastHookedJump^ := EpilogueJump;
-  OutputDebugString('VectoredExceptionHandler Epilogue!');
+  OutputDebugString('VectoredExceptionHandler');
+  {
+  //lstStack := JclLastExceptStackList;
+  lstStack := JclCreateStackList(True, 0, nil);
+  lstStrings := TStringList.Create;
+  lstStack.AddToStrings(lstStrings, False, False, True);
+  LogDebug('%s', [lstStrings.Text]);
+  }
+
+  if HookEpilogueException <> nil then
+    g_LastHookedJump^ := EpilogueJump;
   Result := 0;
 end;
 
