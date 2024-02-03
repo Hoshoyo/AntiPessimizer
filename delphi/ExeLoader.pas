@@ -10,6 +10,11 @@ uses
   Windows;
 
 type
+{$Z4}
+  TCommandType = (ctEnd = 0, ctRequestProcedures = 1, ctInstrumetProcedures = 2, ctProfilingData = 3);
+  PCommandType = ^TCommandType;
+{$Z1}
+
   TAnchorBuffer = array [0..63] of Byte;
   PAnchorBuffer = ^TAnchorBuffer;
 
@@ -577,6 +582,9 @@ begin
   stream := TMemoryStream.Create;
   writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
 
+  writer.Write(Integer(-1));
+  writer.Write(Integer(ctRequestProcedures));
+
   Result := TDictionary<String, TJclTD32ProcSymbolInfo>.Create;
 
   for Item in dcProcsByModule do
@@ -592,6 +600,8 @@ begin
           writer.Write(PeBorUnmangleName(strName));
         end;
     end;
+
+  PCardinal(PByte(stream.Memory))^ := stream.Position - sizeof(Cardinal);
 
   OutputDebugString(PWidechar('Sending ' + IntToStr(dcProcsByModule.Count) + ' modules ' + IntToStr(stream.Size) + ' bytes written'));
 
@@ -612,7 +622,7 @@ begin
     end;
 end;
 
-initialization
-  LoadVectoredExceptionHandling;
+///initialization
+//  LoadVectoredExceptionHandling;
 
 end.

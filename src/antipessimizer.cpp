@@ -40,6 +40,7 @@ struct Antipessimizer {
 
     HANDLE pipe = 0;
     void* send_buffer = 0;
+    Light_Arena* recv_buffer = 0;
 
     DWORD remote_thread_id = 0;
 
@@ -99,6 +100,27 @@ void injectcode(Antipessimizer* antip)
     {
         printf("Error allocating memory on process\n");
     }
+}
+
+typedef struct {
+    uint32_t size;
+    uint32_t type;
+} DebugRequest;
+
+void
+send_procedures_request(Antipessimizer* antip)
+{
+    DWORD written = 0;
+    DebugRequest dr = { sizeof(DebugRequest) - sizeof(uint32_t), ctRequestProcedures};
+    WriteFile(antip->pipe, &dr, sizeof(dr), &written, 0);
+}
+
+void
+antipessimizer_request_result()
+{
+    DWORD written = 0;
+    DebugRequest dr = { sizeof(DebugRequest) - sizeof(uint32_t), ctProfilingData };
+    WriteFile(antip.pipe, &dr, sizeof(dr), &written, 0);
 }
 
 void
@@ -224,17 +246,8 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                 {
                     //ResumeThread(antip->process_info.hThread);
                 }
-
-#if 0
-                // Can free every thread to run
-                for (int i = 0; i < array_length(antip->suspended_threads); ++i)
-                    ResumeThread(antip->suspended_threads[i]);
-                array_clear(antip->suspended_threads);
-
-                printf("Releasing all threads to run!\n");
-#endif
+                break;
             }
-
             klen = hpa_parse_keyword(&at, "AntiPessimizerReady");
             if (klen > 0)
             {
@@ -248,7 +261,14 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                     array_clear(antip->suspended_threads);
                 }
 
-                printf("Releasing all threads to run!\n");                
+                printf("Releasing all threads to run!\n");
+                break;
+            }
+
+            klen = hpa_parse_keyword(&at, "AntiPessimizerPipeReady");
+            if (klen > 0)
+            {
+                send_procedures_request(antip);
             }
         } break;
         case EXIT_PROCESS_DEBUG_EVENT: {
@@ -381,6 +401,10 @@ antipessimizer_start(const char* filepath)
         antip.send_buffer = calloc(1, 1024 * 1024);
 
     char* at = (char*)antip.send_buffer;
+    uint32_t* size = (uint32_t*)at;
+    at += sizeof(uint32_t);
+    *(int*)at = ctInstrumetProcedures;
+    at += sizeof(int);
 
     if (g_module_table.modules)
     {
@@ -393,7 +417,6 @@ antipessimizer_start(const char* filepath)
                 *(int*)at = proc_count;
                 at += sizeof(int);
 
-                //WriteFile(antip.pipe, &proc_count, sizeof(int), &written, 0);
                 for (int k = 0; k < array_length(em->procedures); ++k)
                 {
                     InstrumentedProcedure* ip = em->procedures + k;
@@ -405,28 +428,26 @@ antipessimizer_start(const char* filepath)
                 }
             }
         }
+        *size = (uint32_t)(at - antip.send_buffer - sizeof(uint32_t));
+
         DWORD written = 0;
         WriteFile(antip.pipe, antip.send_buffer, at - antip.send_buffer, &written, 0);
-        printf("Sent %d bytes to pipe\n", at - antip.send_buffer);
+        printf("Sent %d bytes to pipe\n", *size);
     }
 
     return 0;
 }
 
 void
-read_pipe_message()
+process_modules_message(uint8_t* msg, int size)
 {
-    DWORD read_bytes = 0;
-
     if (g_module_table.modules == 0)
     {
         g_module_table.modules = array_new(ExeModule);
     }
-    
-    int bytes_to_read = 1024 * 1024;
-    ReadFile(antip.pipe, buffer, bytes_to_read, &read_bytes, 0);
 
-    uint8_t* at = buffer;
+    int read_bytes = size;
+    uint8_t* at = msg;
     while (read_bytes > 0)
     {
         uint8_t* start = at;
@@ -455,9 +476,49 @@ read_pipe_message()
             InstrumentedProcedure iproc = { proc, demangled };
             array_push(em.procedures, iproc);
         }
-        
+
         array_push(g_module_table.modules, em);
 
         read_bytes -= (at - start);
+    }
+}
+
+void
+read_pipe_message()
+{
+    DWORD read_bytes = 0;    
+    uint32_t size_to_read = 0;
+    uint32_t msg_size = 0;
+
+    if (antip.recv_buffer == 0) 
+    {
+        antip.recv_buffer = arena_create(1024 * 1024);
+    }
+
+    while (ReadFile(antip.pipe, &size_to_read, sizeof(uint32_t), &read_bytes, 0))
+    {
+        msg_size = size_to_read;
+        
+        uint8_t* buffer = (uint8_t*)arena_alloc(antip.recv_buffer, size_to_read);
+        uint8_t* at = buffer;
+        while (size_to_read > 0)
+        {
+            ReadFile(antip.pipe, at, size_to_read, &read_bytes, 0);
+            size_to_read -= read_bytes;
+            at += read_bytes;
+        }
+
+        uint32_t type = *(uint32_t*)buffer;
+        switch (type)
+        {
+            case ctRequestProcedures: {
+                process_modules_message(buffer + sizeof(type), msg_size - sizeof(type));
+            } break;
+            case ctProfilingData: {
+            } break;
+            default: break;
+        }
+
+        arena_clear(antip.recv_buffer);
     }
 }

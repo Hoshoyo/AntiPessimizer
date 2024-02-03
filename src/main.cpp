@@ -15,11 +15,11 @@ extern "C" {
 #include "antipessimizer.h"
 
 // Data
-static ID3D11Device*            g_pd3dDevice = nullptr;
-static ID3D11DeviceContext*     g_pd3dDeviceContext = nullptr;
-static IDXGISwapChain*          g_pSwapChain = nullptr;
+static ID3D11Device*            g_pd3dDevice = 0;
+static ID3D11DeviceContext*     g_pd3dDeviceContext = 0;
+static IDXGISwapChain*          g_pSwapChain = 0;
 static UINT                     g_ResizeWidth = 0, g_ResizeHeight = 0;
-static ID3D11RenderTargetView*  g_mainRenderTargetView = nullptr;
+static ID3D11RenderTargetView*  g_mainRenderTargetView = 0;
 
 // Forward declarations of helper functions
 bool CreateDeviceD3D(HWND hWnd);
@@ -36,7 +36,7 @@ DoExampleAppCustomRendering()
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
         {
             ImVec2 p0 = ImGui::GetCursorScreenPos();
-            draw_list->AddRectFilled(ImVec2(p0.x,p0.y), ImVec2(p0.x + 100, p0.y + 100), IM_COL32(255, 255, 255, 255));
+            draw_list->AddRectFilled(ImVec2(p0.x,p0.y), ImVec2(p0.x + 100, p0.y + 100), IM_COL32(0xff, 0xaa, 0xaa, 0xaa));
         }
         ImGui::End();
     }
@@ -59,7 +59,7 @@ SelectionWindow()
 
     if (ImGui::Begin("Project"))
     {
-        ImGui::Columns(3, 0, false);
+        ImGui::Columns(4, 0, false);
         if (ImGui::Button("Browse..."))
         {
             antipessimizer_stop();            
@@ -74,6 +74,12 @@ SelectionWindow()
         {
             antipessimizer_start(process_filepath);
         }
+        ImGui::NextColumn();
+        if (ImGui::Button("Result"))
+        {
+            antipessimizer_request_result();
+        }
+
         ImGui::Columns(1);
         ImGui::InputText("Filepath", process_filepath, sizeof(process_filepath));
 
@@ -131,9 +137,9 @@ SelectionWindow()
 int main(int, char**)
 {
     // Create application window
-    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(nullptr), nullptr, nullptr, nullptr, nullptr, L"AntiPessimizerClass", nullptr };
+    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0, GetModuleHandle(0), 0, 0, 0, 0, L"AntiPessimizerClass", 0 };
     RegisterClassExW(&wc);
-    HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"AntiPessimizer", WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, nullptr, nullptr, wc.hInstance, nullptr);
+    HWND hwnd = CreateWindowW(wc.lpszClassName, L"AntiPessimizer", WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, 0, 0, wc.hInstance, 0);
 
     // Initialize Direct3D
     if (!CreateDeviceD3D(hwnd))
@@ -154,7 +160,6 @@ int main(int, char**)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
-    //io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
 
     ImGui::StyleColorsDark();
 
@@ -170,12 +175,7 @@ int main(int, char**)
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
-    // Our state
-    bool show_demo_window = true;
-    bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-
-    //start_antipessimizer("C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe");
 
     wstring_init_globals();
     string_init_globals();
@@ -184,10 +184,8 @@ int main(int, char**)
     bool done = false;
     while (!done)
     {
-        // Poll and handle messages (inputs, window resize, etc.)
-        // See the WndProc() function below for our to dispatch events to the Win32 backend.
         MSG msg;
-        while (::PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
+        while (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE))
         {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
@@ -332,8 +330,6 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_DPICHANGED:
         if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_DpiEnableScaleViewports)
         {
-            //const int dpi = HIWORD(wParam);
-            //printf("WM_DPICHANGED to %d (%.0f%%)\n", dpi, (float)dpi / 96.0f * 100.0f);
             const RECT* suggested_rect = (RECT*)lParam;
             SetWindowPos(hWnd, nullptr, suggested_rect->left, suggested_rect->top, suggested_rect->right - suggested_rect->left, suggested_rect->bottom - suggested_rect->top, SWP_NOZORDER | SWP_NOACTIVATE);
         }
