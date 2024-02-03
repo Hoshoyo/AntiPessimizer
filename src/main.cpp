@@ -28,16 +28,57 @@ void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-static void 
-DoExampleAppCustomRendering()
+static double
+cycles_to_ms(uint64_t cycles, uint64_t cycles_per_second)
 {
+    return ((double)cycles / (double)cycles_per_second) * 1000.0;
+}
+
+static void 
+RenderResults()
+{
+    ProfilingResults* prof = antipessimizer_get_profiling_results();
     if (ImGui::Begin("Results"))
     {
+#if 0
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
         {
             ImVec2 p0 = ImGui::GetCursorScreenPos();
             draw_list->AddRectFilled(ImVec2(p0.x,p0.y), ImVec2(p0.x + 100, p0.y + 100), IM_COL32(0xff, 0xaa, 0xaa, 0xaa));
         }
+#endif
+        if (ImGui::BeginTable("table_results", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
+        {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Procedure");
+            ImGui::TableNextColumn();
+            ImGui::Text("Exclusive");
+            ImGui::TableNextColumn();
+            ImGui::Text("With children");
+            ImGui::TableNextColumn();
+            ImGui::Text("Hit count");
+
+            if (prof->anchors)
+            {
+                uint64_t cycles_per_sec = prof->cycles_per_second;
+                for (int i = 0; i < array_length(prof->anchors); ++i)
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.*s", prof->anchors[i].name.length, prof->anchors[i].name.data);
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.4f ms", cycles_to_ms(prof->anchors[i].elapsed_exclusive, cycles_per_sec));
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%.4f ms", cycles_to_ms(prof->anchors[i].elapsed_inclusive, cycles_per_sec));
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%lld", prof->anchors[i].hitcount);
+                }
+            }
+
+            ImGui::EndTable();
+        }
+
         ImGui::End();
     }
 }
@@ -79,6 +120,7 @@ SelectionWindow()
         {
             antipessimizer_request_result();
         }
+        antipessimizer_request_result();
 
         ImGui::Columns(1);
         ImGui::InputText("Filepath", process_filepath, sizeof(process_filepath));
@@ -209,10 +251,10 @@ int main(int, char**)
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
+        // Application rendering
         {
             ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
-            DoExampleAppCustomRendering();
+            RenderResults();
             SelectionWindow();
         }
 

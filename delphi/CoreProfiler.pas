@@ -1,6 +1,8 @@
 unit CoreProfiler;
 
 interface
+uses
+  Classes;
 
 const
   c_ProfilerStackSize = 1024*64;  // 64 kB
@@ -52,6 +54,7 @@ type
   function  DHExitProfileBlock: Pointer;
   function  DHExitProfileBlockException: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
+  procedure ProfilerSerializeResults(stream : TMemoryStream);
 
   procedure PrintDHProfilerResults;
 
@@ -61,6 +64,7 @@ var
 
 implementation
 uses
+  JclPeImage,
   Utils,
   Windows,
   SysUtils;
@@ -192,8 +196,43 @@ begin
     end;
 end;
 
+procedure ProfilerSerializeResults(stream : TMemoryStream);
+var
+  nIndex    : Integer;
+  prAnchor  : PProfileAnchor;
+  writer    : TBinaryWriter;
+  nStartPos : Integer;
+  nCount    : Cardinal;
+begin
+  writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
+
+  nCount := 0;
+  nStartPos := stream.Position;
+  writer.Write(Integer(-1));
+
+  writer.Write(g_nCyclesPerSecond);
+
+  for nIndex := 0 to Length(g_DHArrProcedures)-1 do
+    begin
+      if g_DHArrProcedures[nIndex] = nil then
+        continue;
+      prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack.nAddrOffset);
+      if prAnchor.nHitCount > 0 then
+        begin
+          Inc(nCount);
+          writer.Write(PeBorUnmangleName(prAnchor.strName));
+          writer.Write(prAnchor.nElapsedExclusive);
+          writer.Write(prAnchor.nElapsedInclusive);
+          writer.Write(prAnchor.nHitCount);
+        end;
+    end;
+
+  PCardinal(PByte(stream.Memory) + nStartPos)^ := nCount;
+
+  writer.Free;
+end;
+
 initialization
-  OutputDebugString(PWidechar(Uint64(@DHExitProfileBlock).ToString));
   CallibrateTimeStamp;
 
 end.

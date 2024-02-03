@@ -48,11 +48,11 @@ struct Antipessimizer {
     void* sleeplibaddr = 0;
 
     DWORD dbg_thread_id = 0;
+
+    ProfilingResults prof_results;
 };
 
 static Antipessimizer antip;
-
-void read_pipe_message();
 
 void injectcode(Antipessimizer* antip)
 {
@@ -484,6 +484,49 @@ process_modules_message(uint8_t* msg, int size)
 }
 
 void
+process_profiling_result(uint8_t* msg, int size)
+{
+    if (antip.prof_results.anchors == 0)
+    {
+        antip.prof_results.anchors = array_new(ProfileAnchor);
+    }
+
+    array_clear(antip.prof_results.anchors);
+
+    int read_bytes = size;
+    uint8_t* at = msg;
+    while (read_bytes > 0)
+    {
+        uint8_t* start = at;
+
+        uint32_t count = *(uint32_t*)at;
+        at += sizeof(uint32_t);
+
+        antip.prof_results.cycles_per_second = *(uint64_t*)at;
+        at += sizeof(uint64_t);
+
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            ProfileAnchor anchor;
+            int value = read_7bit_encoded_int(&at);
+            anchor.name = ustr_new_len_c((char*)at, value);
+            at += value;
+
+            anchor.elapsed_exclusive = *(uint64_t*)at;
+            at += sizeof(uint64_t);
+            anchor.elapsed_inclusive = *(uint64_t*)at;
+            at += sizeof(uint64_t);
+            anchor.hitcount = *(uint64_t*)at;
+            at += sizeof(uint64_t);
+
+            array_push(antip.prof_results.anchors, anchor);
+        }
+
+        read_bytes -= (at - start);
+    }
+}
+
+void*
 read_pipe_message()
 {
     DWORD read_bytes = 0;    
@@ -515,11 +558,19 @@ read_pipe_message()
                 process_modules_message(buffer + sizeof(type), msg_size - sizeof(type));
             } break;
             case ctProfilingData: {
-                DebugActiveProcessStop(antip.process_info.dwProcessId);
+                process_profiling_result(buffer + sizeof(type), msg_size - sizeof(type));
             } break;
             default: break;
         }
 
         arena_clear(antip.recv_buffer);
     }
+
+    return &antip;
+}
+
+ProfilingResults*
+antipessimizer_get_profiling_results()
+{
+    return &antip.prof_results;
 }

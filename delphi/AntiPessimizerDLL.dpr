@@ -113,26 +113,26 @@ var
 begin
   stream := TMemoryStream.Create;
 
-  OutputDebugString(PWidechar('Waiting for command in the pipe'));
+  //OutputDebugString(PWidechar('Waiting for command in the pipe'));
 
   if not ReadFile(pipe, nSize, Sizeof(Cardinal), nRead, nil) then
     Sleep(100);
   nToRead := nSize;
   nReadBytes := 0;
 
-  OutputDebugString(PWidechar('Command received ' + IntToStr(nToRead) + ' bytes'));
+  //OutputDebugString(PWidechar('Command received ' + IntToStr(nToRead) + ' bytes'));
 
   repeat
     ReadFile(pipe, g_RecvCommandBuffer[0], nToRead, nRead, nil);
 
-    OutputDebugString(PWidechar('Command read ' + IntToStr(nToRead) + ' bytes'));
+    //OutputDebugString(PWidechar('Command read ' + IntToStr(nToRead) + ' bytes'));
 
     stream.WriteBuffer(g_RecvCommandBuffer[0], nRead);
     nReadBytes := nReadBytes + nRead;
     nToRead := nToRead - nRead;
   until (nReadBytes = nSize);
 
-  OutputDebugString(PWidechar('Received command ' + IntToStr(nReadBytes) + ' bytes in the pipe'));
+  //OutputDebugString(PWidechar('Received command ' + IntToStr(nReadBytes) + ' bytes in the pipe'));
 
   stream.Position := Sizeof(TCommandType);
   Result.stream := stream;
@@ -140,8 +140,25 @@ begin
 end;
 
 procedure ProcessSendResults(pipe : THandle);
+var
+  stream   : TMemoryStream;
+  writer   : TBinaryWriter;
+  nWritten : DWORD;
 begin
+  stream := TMemoryStream.Create;
+  writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
 
+  writer.Write(Integer(-1));
+  writer.Write(Cardinal(ctProfilingData));
+
+  ProfilerSerializeResults(stream);
+
+  PCardinal(stream.Memory)^ := stream.Position - Sizeof(Cardinal);
+
+  //LogDebug('Sending Profiling results to pipe', []);
+
+  WriteFile(pipe, PByte(stream.Memory)^, stream.Size, nWritten, nil);
+  writer.Free;
 end;
 
 function Worker(pParam : Pointer): DWORD; stdcall;
@@ -162,7 +179,7 @@ begin
   repeat
     cmd := WaitForCommand(pipe);
 
-    OutputDebugString(PWidechar('Received command of type=' + IntToStr(Integer(cmd.ctType))));
+    //OutputDebugString(PWidechar('Received command of type=' + IntToStr(Integer(cmd.ctType))));
     case cmd.ctType of
       ctRequestProcedures:   ProcessSendAllModules(pipe, @state);
       ctInstrumetProcedures: ProcessInstrumentationCommand(cmd, @state);

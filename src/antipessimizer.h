@@ -26,10 +26,23 @@ typedef enum {
     ctProfilingData = 3,
 } PipeMessage;
 
+typedef struct {
+    String   name;
+    uint64_t elapsed_exclusive;
+    uint64_t elapsed_inclusive;
+    uint64_t hitcount;
+} ProfileAnchor;
+
+typedef struct {
+    uint64_t cycles_per_second;
+    ProfileAnchor* anchors;
+} ProfilingResults;
+
 extern Table g_module_table;
 
 int  antipessimizer_start(const char* filepath);
 int  antipessimizer_load_exe(const char* filepath);
 void antipessimizer_request_result();
-void read_pipe_message();
+void* read_pipe_message();
 int  antipessimizer_stop();
+ProfilingResults* antipessimizer_get_profiling_results();
