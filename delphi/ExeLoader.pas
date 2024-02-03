@@ -10,6 +10,22 @@ uses
   Windows;
 
 type
+  PEXCEPTION_RECORD = ^EXCEPTION_RECORD;
+  EXCEPTION_RECORD = record
+    ExceptionCode    : DWORD;
+    ExceptionFlags   : DWORD;
+    ExceptionRecord  : PEXCEPTION_RECORD;
+    ExceptionAddress : PVOID;
+    NumberParameters : DWORD;
+    ExceptionInformation : array [0..EXCEPTION_MAXIMUM_PARAMETERS-1] of ULONG_PTR;
+  end;
+
+  EXCEPTION_POINTERS = record
+    ExceptionRecord : PEXCEPTION_RECORD;
+    ContextRecord   : PCONTEXT;
+  end;
+  PEXCEPTION_POINTERS = ^EXCEPTION_POINTERS;
+
 {$Z4}
   TCommandType = (ctEnd = 0, ctRequestProcedures = 1, ctInstrumetProcedures = 2, ctProfilingData = 3);
   PCommandType = ^TCommandType;
@@ -27,6 +43,7 @@ type
   function  ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;
   procedure InstrumentModuleProcs;
   procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
+  function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 
 implementation
 uses
@@ -39,28 +56,13 @@ uses
   Character,
   SysUtils,
   StrUtils;
-type
-  PEXCEPTION_RECORD = ^EXCEPTION_RECORD;
-  EXCEPTION_RECORD = record
-    ExceptionCode    : DWORD;
-    ExceptionFlags   : DWORD;
-    ExceptionRecord  : PEXCEPTION_RECORD;
-    ExceptionAddress : PVOID;
-    NumberParameters : DWORD;
-    ExceptionInformation : array [0..EXCEPTION_MAXIMUM_PARAMETERS-1] of ULONG_PTR;
-  end;
-
-  EXCEPTION_POINTERS = record
-    ExceptionRecord : PEXCEPTION_RECORD;
-    ContextRecord   : PCONTEXT;
-  end;
-  PEXCEPTION_POINTERS = ^EXCEPTION_POINTERS;
 
 const
   c_nModuleCodeOffset = $1000;
 
 var
   AddVectoredExceptionHandler : function (nFirst : ULONG; pHandler : Pointer): PVOID; stdcall;
+  RemoveVectoredExceptionHandler : function (pHandler : Pointer): ULONG; stdcall;
   g_hKernel : THandle;
   g_InfoSourceClassList : TList = nil;
   g_LastHookedJump : PPointer = nil;
@@ -69,6 +71,11 @@ var
   g_GlobalHitCount : Integer = 0;
   g_SumHookTime : UInt64;
 {$ENDIF}
+
+procedure RemoveHandler;
+begin
+  RemoveVectoredExceptionHandler(@ExceptionHandler);
+end;
 
 procedure HookEpilogue;
 asm
@@ -88,8 +95,7 @@ procedure HookEpilogueException;
 asm
   .noframe
   sub rsp, 40
-  //call ExitProfileBlock
-  call DHExitProfileBlock
+  call DHExitProfileBlockException
   add rsp, 40
 end;
 
@@ -492,11 +498,7 @@ begin
   dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
 
-  {$IFDEF ANTIPESSIMIZER_DELPHI}
   if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('AntiPessimizerDelphi', lstProcs) then
-  {$ELSE}
-  if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('GdiExample', lstProcs) then
-  {$ENDIF}
     begin
       // Find lowest and highest address to make the hash table
       nLowProc := $FFFFFFFFFFFFFFFF;
@@ -554,6 +556,7 @@ begin
   OutputDebugString('VectoredExceptionHandler!');
   HookEpilogueException;
   g_LastHookedJump^ := EpilogueJump;
+  OutputDebugString('VectoredExceptionHandler Epilogue!');
   Result := 0;
 end;
 
@@ -619,10 +622,11 @@ begin
       @AddVectoredExceptionHandler := GetProcAddress(g_hKernel, 'AddVectoredExceptionHandler');
       if @AddVectoredExceptionHandler <> nil then
         AddVectoredExceptionHandler(1, @ExceptionHandler);
+      @RemoveVectoredExceptionHandler := GetProcAddress(g_hKernel, 'RemoveVectoredExceptionHandler');
     end;
 end;
 
-///initialization
-//  LoadVectoredExceptionHandling;
+initialization
+  LoadVectoredExceptionHandling;
 
 end.

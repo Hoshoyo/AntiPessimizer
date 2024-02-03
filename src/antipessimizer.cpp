@@ -314,7 +314,7 @@ antipessimizer_debug_thread(LPVOID param)
 
     antip.startup_info.cb = sizeof(STARTUPINFOA);
 
-    BOOL proc_created = CreateProcessA(filepath, 0, 0, 0, FALSE, DEBUG_PROCESS,
+    BOOL proc_created = CreateProcessA(filepath, 0, 0, 0, FALSE, DEBUG_ONLY_THIS_PROCESS,
         0, 0, &antip.startup_info, &antip.process_info);
 
     antip.suspended_threads = array_new(RemoteThread);
@@ -515,6 +515,7 @@ read_pipe_message()
                 process_modules_message(buffer + sizeof(type), msg_size - sizeof(type));
             } break;
             case ctProfilingData: {
+                DebugActiveProcessStop(antip.process_info.dwProcessId);
             } break;
             default: break;
         }

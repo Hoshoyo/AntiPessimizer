@@ -50,6 +50,7 @@ type
 
   procedure DHEnterProfileBlock(nAddr : Pointer);
   function  DHExitProfileBlock: Pointer;
+  function  DHExitProfileBlockException: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
 
   procedure PrintDHProfilerResults;
@@ -75,6 +76,7 @@ begin
   g_DHProfileStack.pbBlocks[0].pParentAnchor := PProfileAnchor(PByte(pAnchor) - sizeof(TProfileAnchor));
   g_DHTableProfiler := pAnchor;
   g_DHProfileStack.nAddrOffset := nOffsetFromModuleBase;
+  g_DHProfileStack.nAtIndex := 0;
 end;
 
 // Direct hashed anchored profiler
@@ -92,6 +94,7 @@ begin
   pBlock.pAnchor := PProfileAnchor(PByte(nAddr) + g_DHProfileStack.nAddrOffset);
   pBlock.ptrReturnTarget := EpilogueJump;
 
+  //LogDebug('Entering block AtIdx=%d Name=%s ThreadID=%d', [nAtIdx, pBlock.pAnchor.strName, GetCurrentThreadId]);
   //OutputDebugString(Pwidechar(Format('Entered index %d Addr=%p Anchor=%p', [nAtIdx, nAddr, pBlock.pAnchor])));
 
   pBlock.nPrevTimeInclusive := pBlock.pAnchor.nElapsedInclusive;
@@ -110,6 +113,8 @@ begin
   pBlock := @g_DHProfileStack.pbBlocks[nAtIdx];
   Dec(g_DHProfileStack.nAtIndex);
 
+  //LogDebug('Exiting block AtIdx=%d', [nAtIdx]);
+
   nElapsed := nElapsed - pBlock.nStartTime;
 
   pBlock.pParentAnchor.nElapsedExclusive := pBlock.pParentAnchor.nElapsedExclusive - nElapsed;
@@ -121,6 +126,14 @@ begin
   Inc(pBlock.pAnchor.nHitCount);
 
   Result := pBlock.ptrReturnTarget;
+end;
+
+function DHExitProfileBlockException: Pointer;
+begin
+  if g_DHProfileStack.nAtIndex = 0 then
+    Exit(nil);
+
+  Result := DHExitProfileBlock;
 end;
 
 function CyclesToMs(nCycles : Int64): Double;
@@ -161,8 +174,6 @@ var
   nIndex   : Integer;
   prAnchor : PProfileAnchor;
 begin
-  CallibrateTimeStamp;
-
   for nIndex := 0 to Length(g_DHArrProcedures)-1 do
     begin
       if g_DHArrProcedures[nIndex] = nil then
@@ -180,5 +191,9 @@ begin
         end;
     end;
 end;
+
+initialization
+  OutputDebugString(PWidechar(Uint64(@DHExitProfileBlock).ToString));
+  CallibrateTimeStamp;
 
 end.

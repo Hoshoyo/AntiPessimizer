@@ -9,7 +9,8 @@ uses
   System.Classes,
   CoreProfiler in 'CoreProfiler.pas',
   ExeLoader in 'ExeLoader.pas',
-  Udis86 in 'Udis86.pas';
+  Udis86 in 'Udis86.pas',
+  Utils in 'Utils.pas';
 
 type
   TCommand = record
@@ -138,6 +139,11 @@ begin
   Result.ctType := PCommandType(@g_RecvCommandBuffer[0])^;
 end;
 
+procedure ProcessSendResults(pipe : THandle);
+begin
+
+end;
+
 function Worker(pParam : Pointer): DWORD; stdcall;
 var
   pipe  : THandle;
@@ -160,7 +166,7 @@ begin
     case cmd.ctType of
       ctRequestProcedures:   ProcessSendAllModules(pipe, @state);
       ctInstrumetProcedures: ProcessInstrumentationCommand(cmd, @state);
-      ctProfilingData:       PrintDHProfilerResults;
+      ctProfilingData:       ProcessSendResults(pipe);
     end;
   until cmd.ctType = ctEnd;
 

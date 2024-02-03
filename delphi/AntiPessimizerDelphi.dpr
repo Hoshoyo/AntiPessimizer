@@ -41,10 +41,20 @@ begin
   Result := 32;
 end;
 
-function BeSlowInternal: Int64; stdcall;
+function MoreInternal: Int64; stdcall;
 begin
   Result := 45 * 32 + 123;
   Inc(Result);
+  Dec(Result);
+
+  if Result > 32655 then
+    Result := Result div 3;
+end;
+
+function BeSlowInternal: Int64; stdcall;
+begin
+  Result := 45 * 32 + 123;
+  Inc(Result, MoreInternal);
   Dec(Result);
 
   if Result > 32655 then
@@ -135,6 +145,7 @@ end;
 
 begin
   InstrumentModuleProcs;
+
   TestFunction;
   //PrintProfilerResults;
   PrintDHProfilerResults;

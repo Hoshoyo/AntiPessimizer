@@ -119,6 +119,7 @@
         <DCCReference Include="CoreProfiler.pas"/>
         <DCCReference Include="ExeLoader.pas"/>
         <DCCReference Include="Udis86.pas"/>
+        <DCCReference Include="Utils.pas"/>
         <BuildConfiguration Include="Release">
             <Key>Cfg_2</Key>
             <CfgParent>Base</CfgParent>

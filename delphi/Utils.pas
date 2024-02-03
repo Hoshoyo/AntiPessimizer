@@ -8,9 +8,11 @@ function HashPointer(pAddr : Pointer): Uint64;
 function CalculateAnchorIndex(nPow2 : Integer; nHash : Uint64): Integer;
 function ReadTimeStamp: Uint64;
 function GetCurrentDir: String;
+procedure LogDebug(const Format: string; const Args: array of const);
 
 implementation
 uses
+  SysUtils,
   Windows;
 var
   g_RandomSeed : Int64;
@@ -69,6 +71,14 @@ var
 begin
   GetCurrentDirectory(MAX_PATH, Buffer);
   Result := String(Buffer);
+end;
+
+procedure LogDebug(const Format: string; const Args: array of const);
+var
+  strVal : String;
+begin
+  strVal := System.SysUtils.Format(Format, Args, FormatSettings);
+  OutputDebugString(Pwidechar(strVal));
 end;
 
 initialization
