@@ -1834,7 +1834,7 @@ end;
 constructor TJclEnumerateSymbolInfo.Create(pSymInfo: PFieldListElement);
 begin
   // Adjust PFieldListElement to PSymbolInfo for TJclSymbolInfo.Create
-  inherited Create(PSymbolInfo(DWORD(pSymInfo) - 2), 0);
+  inherited Create(PSymbolInfo(NativeInt(pSymInfo) - 2), 0);
   with pSymInfo^ do
   begin
     FFlags := LeafEnumerate.Flags;
@@ -2185,8 +2185,8 @@ begin
 
   while Offset < Size do
   begin
-    pInfo := PSymbolInfo(DWORD(pSymbols) + Offset);
-    ID := DWORD(pInfo) - DWORD(pSymbols);
+    pInfo := PSymbolInfo(NativeUint(pSymbols) + Offset);
+    ID := NativeUint(pInfo) - NativeUint(pSymbols);
     Symbol := nil;
     case pInfo.SymbolType of
 { Temporary disabled symbols
@@ -2279,10 +2279,10 @@ begin
   ModuleInfo.FSourceModules.Capacity := ModuleInfo.FSourceModules.Capacity + pSrcModInfo.FileCount;
   for I := 0 to pSrcModInfo.FileCount - 1 do
   begin
-    pSrcFile := PSourceFileEntry(DWORD(pSrcModInfo) + pSrcModInfo.BaseSrcFiles[I]);
+    pSrcFile := PSourceFileEntry(NativeUint(pSrcModInfo) + pSrcModInfo.BaseSrcFiles[I]);
     if pSrcFile.NameIndex > 0 then
     begin
-      SrcModule := TJclTD32SourceModuleInfo.Create(pSrcFile, DWORD(pSrcModInfo));
+      SrcModule := TJclTD32SourceModuleInfo.Create(pSrcFile, NativeUint(pSrcModInfo));
       FSourceModules.Add(SrcModule);
       ModuleInfo.FSourceModules.Add(SrcModule);
     end;
