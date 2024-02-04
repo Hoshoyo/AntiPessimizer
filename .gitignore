@@ -5,3 +5,4 @@ Win32/
 *.res
 *.local
 *.identcache
+imgui.ini

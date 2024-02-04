@@ -96,6 +96,10 @@ end;
 function RelativeMovTest: Int64;
 asm
   .noframe
+  //Vcl.Forms.pas.5214: M := TMonitor.Create;
+  //000000000070544C 488B0D2D31FFFF   mov rcx,[rel $ffff312d]
+  mov rcx, [rel $ffff312d]
+
   sub dword ptr [rel $000fa8c9],$01
   cmp dword ptr [rel $000fa8c2],-$01
   push rax

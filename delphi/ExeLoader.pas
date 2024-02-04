@@ -587,16 +587,18 @@ begin
   LogDebug('Exception=%x at %p RCX=%x', [ExceptionInfo.ExceptionRecord.ExceptionCode,
     ExceptionInfo.ExceptionRecord.ExceptionAddress, ExceptionInfo.ContextRecord.Rcx]);
 
-    {
+                                {
   //lstStack := JclLastExceptStackList;
   lstStack := JclCreateStackList(True, 0, nil);
   lstStrings := TStringList.Create;
   lstStack.AddToStrings(lstStrings, False, False, True);
   LogDebug(' %s', [lstStrings.Text]);
-  }
 
   if HookEpilogueException <> nil then
     g_LastHookedJump^ := EpilogueJump;
+
+  ExitProcess(1);
+  }
 
   Result := 0;
 end;

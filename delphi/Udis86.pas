@@ -898,7 +898,14 @@ begin
               nOpOffsetFromEnd := 0;
               for nOf := High(ud.udOperand) downto nOperand do
                 begin
-                  Inc(nOpOffsetFromEnd, ud.udOperand[nOf].nSize div 8);
+                  if ud.udOperand[nOf].nType = UD_OP_MEM then
+                    Inc(nOpOffsetFromEnd, ud.udOperand[nOf].nOffset div 8)
+                  else if ud.udOperand[nOf].nType = UD_OP_IMM then
+                    Inc(nOpOffsetFromEnd, ud.udOperand[nOf].nSize div 8)
+                  else if ud.udOperand[nOf].nType = UD_NONE then
+                    Continue
+                  else
+                    Exit(udErrExecBufferNotRelativeNear); // TODO(psv): Unknown operator type
                 end;
 
               arPatch[nRelIdx].ptrPatch := pRelBuffer + nInstrSize - nOpOffsetFromEnd;
