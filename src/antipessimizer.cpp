@@ -423,6 +423,25 @@ antipessimizer_start(const char* filepath)
                     {
                         array_remove(em->procedures, k);
                     }
+#if 1
+#elif 1
+                    else if (
+                        !(string_equal_char((char*)"_ZN3Vcl5Forms11TCustomFormC3EPN6System7Classes10TComponentE", ip->name) ||
+                        string_equal_char((char*)"_ZN3Vcl5Forms11TCustomForm10SetVisibleEb", ip->name))
+                        )
+                    {
+                        array_remove(em->procedures, k);
+                    }
+#else
+                    else if (
+                        !string_has_prefix_char((char*)"_ZN3Vcl5Forms11TCustomFormD0Ev", ip->name) &&
+                        !string_has_prefix_char((char*)"_ZN3Vcl5Forms11TCustomFormC3EPN6System7Classes10TComponentE", ip->name) &&                        
+                        !string_has_prefix_char((char*)"_ZN3Vcl5Forms11TCustomForm10SetVisibleEb", ip->name)
+                            )
+                    {
+                        array_remove(em->procedures, k);
+                    }
+#endif
                 }
 
                 int proc_count = array_length(em->procedures);
@@ -486,6 +505,12 @@ process_modules_message(uint8_t* msg, int size)
             at += value;
 
             InstrumentedProcedure iproc = { proc, demangled };
+
+            iproc.offset = *(uint32_t*)at;
+            at += sizeof(uint32_t);
+            iproc.size = *(uint32_t*)at;
+            at += sizeof(uint32_t);
+
             array_push(em.procedures, iproc);
         }
 

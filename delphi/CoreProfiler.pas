@@ -233,8 +233,8 @@ begin
       if prAnchor.nHitCount > 0 then
         begin
           Inc(nCount);
-          //writer.Write(PeBorUnmangleName(prAnchor.strName));
-          writer.Write(prAnchor.strName);
+          writer.Write(PeBorUnmangleName(prAnchor.strName));
+          //writer.Write(prAnchor.strName);
           writer.Write(prAnchor.nElapsedExclusive);
           writer.Write(prAnchor.nElapsedInclusive);
           writer.Write(prAnchor.nHitCount);

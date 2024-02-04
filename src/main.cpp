@@ -97,6 +97,7 @@ SelectionWindow()
     read_pipe_message();
     //static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
     static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\Sampling\\Win64\\Debug\\SampleProfiler.exe";
+    static char filter[128] = "Vcl.Forms";
     static int last_selected = -1;
 
     if (ImGui::Begin("Project"))
@@ -126,6 +127,8 @@ SelectionWindow()
         ImGui::Columns(1);
         ImGui::InputText("Filepath", process_filepath, sizeof(process_filepath));
 
+        ImGui::InputText("Filter", filter, sizeof(filter));
+
         if (ImGui::BeginTable("split1", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
         {
             if (g_module_table.modules)
@@ -133,6 +136,11 @@ SelectionWindow()
                 for (int i = 0; i < array_length(g_module_table.modules); ++i)
                 {
                     ExeModule* em = g_module_table.modules + i;
+
+                    if (!strstr(em->name.data, filter))
+                    {
+                        continue;
+                    }
 
                     bool selected = em->flags & EXE_MODULE_SELECTED;
                     ImGui::TableNextRow();
@@ -168,6 +176,7 @@ SelectionWindow()
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
                         ImGui::Text("%s", procs[i].demangled_name.data);
+                        //ImGui::Text("%s (%x:%x)", procs[i].name.data, procs[i].offset, procs[i].size);
                     }
                 }
             }

@@ -6,6 +6,8 @@
 typedef struct {
     String name;
     String demangled_name;
+    uint32_t offset;
+    uint32_t size;
 } InstrumentedProcedure;
 
 typedef struct {

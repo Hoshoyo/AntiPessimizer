@@ -52,37 +52,6 @@ begin
 end;
 
 function BeSlowInternal: Int64; stdcall;
-asm
-  push r13
-  push rdi
-  push rsi
-  push rbx
-  sub rsp,$28
-  mov rbx,rcx
-  db $48
-  db $8B
-  db $0D
-  db $C5
-  db $C7
-  db $11
-  db $00 //  mov rcx,[rel $0011c7c5]
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-end;
-{
 begin
   Result := 45 * 32 + 123;
   Inc(Result, MoreInternal);
@@ -91,7 +60,6 @@ begin
   if Result > 32655 then
     Result := Result div 3;
 end;
-}
 
 function RelativeMovTest: Int64;
 asm
@@ -145,8 +113,8 @@ var
 begin
   nSum := 0;
   for nIndex := 0 to 100000 do
-    nSum := nSum + nIndex;
-  Result := nSum + BeSlowInternal;
+    nSum := nSum + BeSlowInternal;
+  Result := nSum;
   nSum := nSum - 18578;
   Result := Math.Max(nSum, Result);
 end;
@@ -201,11 +169,9 @@ begin
 
   //RelativeMovTest;
 
-  //JustBeSlow;
+  JustBeSlow;
 
-  //BeSlowInternal;
-
-  //CatchException;
+  CatchException;
 
   for nIndex := 0 to 10000 do
     begin
@@ -232,13 +198,6 @@ begin
   TestFunction;
   //PrintProfilerResults;
   PrintDHProfilerResults;
-
-  strList := TStringList.Create;
-
-  lstStack := JclCreateStackList(True, 0, nil);
-  lstStack.AddToStrings(strList, False, False, True);
-
-  Writeln(strList.Text);
 
   Writeln('Profiler took ' + ProfilerCycleTime + ' cycles on average');
 end.

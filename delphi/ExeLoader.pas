@@ -101,11 +101,12 @@ asm
   pop rdx
   pop rcx
 
+{$IF False}
   mov rcx, rax
   pop rax
   jmp rcx
+{$ELSE}
 
-  {
   push rax // jump target
   mov rax, [rsp+8] // return value
   push rax
@@ -115,7 +116,7 @@ asm
 
   pop rax // restore the return value
   add rsp, 8
-  }
+{$ENDIF}
 
   // return to the jump target
 end;
@@ -133,15 +134,6 @@ asm
   .noframe
   mov r11, rax
 
-{$IFDEF MEASURE_HOOKING_TIME}
-  mov r10, rdx
-  rdtsc
-  shl rdx, 32
-  or rax, rdx
-  mov g_StartRdtsc, rax
-  mov rdx, r10
-{$ENDIF}
-
   mov rax, qword ptr[rsp+8]
   mov r10, r11
   shl r11, 8
@@ -153,7 +145,9 @@ asm
   lea rax, HookEpilogue
   mov qword ptr[rsp+8], rax // mov new address as return
 
-  pop rax  // This is where we are called from
+  // This is where we are called from this needs to be done, eventhough the call
+  // stack appears unaligned, since the HookJump is called via "call"
+  pop rax
 
   mov g_LastHookedJump, rsp
 
@@ -171,7 +165,6 @@ asm
     push r10
 
     sub rsp, 40
-    //call EnterProfileBlock
     call DHEnterProfileBlock
     add rsp, 40
 
@@ -181,18 +174,6 @@ asm
     pop r8
     pop rdx
     pop rcx
-
-{$IFDEF MEASURE_HOOKING_TIME}
-  push rdx
-  rdtsc
-  shl rdx, 32
-  or rax, rdx
-  mov rdx, r11
-  add g_GlobalHitCount, 1
-  sub rax, g_StartRdtsc
-  add g_SumHookTime, rax
-  pop rdx
-{$ENDIF}
 
   jmp r11
 end;
@@ -589,8 +570,9 @@ var
   BackTrace : array [0..63] of Pointer;
   locInfo : TJclLocationInfo;
 begin
-  //if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
-  //  Exit(0);
+  // TODO(psv): Not handle exceptions that are not from the module address space
+  if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
+    Exit(0);
 
   if g_ThreadID <> GetCurrentThreadID then
     Exit(0);
@@ -599,7 +581,7 @@ begin
     ExceptionInfo.ExceptionRecord.ExceptionAddress,
     ExceptionInfo.ContextRecord.Rcx,
     ExceptionInfo.ContextRecord.Rax]);
-{
+{$IF False}
   nStackCount := RtlCaptureStackBackTrace(0, 64, @BackTrace[0], nil);
 
   for nIndex := 0 to nStackCount-1 do
@@ -624,7 +606,7 @@ begin
   LogDebug('3', []);
 
   ExitProcess(1);
-  }
+{$ENDIF}
 
   if HookEpilogueException <> nil then
     g_LastHookedJump^ := EpilogueJump;
@@ -673,6 +655,8 @@ begin
           Result.AddOrSetValue(strName, Item.Value[nIndex]);
           writer.Write(strName);
           writer.Write(PeBorUnmangleName(strName));
+          writer.Write(Cardinal(Item.Value[nIndex].Offset));
+          writer.Write(Cardinal(Item.Value[nIndex].Size));
         end;
     end;
 
