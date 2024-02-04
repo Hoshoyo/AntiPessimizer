@@ -766,7 +766,10 @@ type
   end;
   PUdRec = ^UdRec;
 
-  TUdisDisasmError = (udErrNone = 0, udErrProcedureTooSmall, udErrJmpAtStart, udErrExecBufferTooSmallForJumpback, udErrExecBufferTooSmallForPatching);
+  TUdisDisasmError = (udErrNone = 0, udErrProcedureTooSmall, udErrJmpAtStart, udErrExecBufferTooSmallForJumpback, udErrExecBufferTooSmallForPatching, udErrExecBufferNotRelativeNear);
+
+type
+  TCallBackProc = procedure (ud : PUdRec); stdcall;
 
 var
   g_bUdisLoaded : Boolean = False;
@@ -775,6 +778,9 @@ var
   UdSetMode        : procedure (ud : PUdRec; nMode : Byte); stdcall;
   UdSetInputBuffer : procedure (ud : PUdRec; pBuffer : PByte; nSize : SIZE_T); stdcall;
   UdDisassemble    : function  (ud : PUdRec): Cardinal; stdcall;
+  UdSetSyntax      : procedure (ud : PUdRec; syn : TCallBackProc); stdcall;
+  UdTranslateIntel : procedure (ud : PUdRec); stdcall;
+  UdInSnAsm        : function  (ud : PUdRec): PAnsiChar;
 
   function UdErrorToStr(udErr : TUdisDisasmError): String;
   function UdisDisasmAtLeast(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal): Cardinal;
@@ -782,6 +788,7 @@ var
 
 implementation
   uses
+    Utils,
     SysUtils;
 
 var
@@ -795,6 +802,7 @@ begin
     udErrJmpAtStart:                    Result := 'Jump at the start';
     udErrExecBufferTooSmallForJumpback: Result := 'Buffer too small for jumpback';
     udErrExecBufferTooSmallForPatching: Result := 'Buffer too small for patching';
+    udErrExecBufferNotRelativeNear:     Result := 'Buffer is not allocated near relative jump';
   else
     Result := 'Unknown';
   end;
@@ -825,6 +833,7 @@ type
     nInstrSize  : Integer;  // Size in bytes of the instruction
     nOpSizeBits : Byte;     // Size in bits of the operand in the instruction
     nSizeBits   : Byte;     // Size in bits of the data pointed by the operator
+    nOffset     : Integer;
   end;
 var
   ud                 : UdRec;
@@ -835,6 +844,9 @@ var
   nIndex             : Integer;
   nAuxOffset         : Int64;
   arPatch            : array [0..7] of TRelToVal;
+  nNewRelOffset      : Integer;
+  nOf                : Integer;
+  nOpOffsetFromEnd   : Integer;
 begin
   if nBufferSize < nByteCountToDisasm then
     begin
@@ -844,6 +856,7 @@ begin
   UdInit(@ud);
   UdSetMode(@ud, 64);
   UdSetInputBuffer(@ud, pAt, nBufferSize);
+  //UdSetSyntax(@ud, @UdTranslateIntel);
 
   nRelIdx := 0;
   ZeroMemory(@arPatch[0], sizeof(arPatch));
@@ -876,14 +889,23 @@ begin
         begin
           if ud.udOperand[nOperand].nBase = UD_R_RIP then
             begin
-              nSizeBits := ud.udOperand[nOperand].nSize;
-              arPatch[nRelIdx].ptrPatch := pRelBuffer + nInstrSize - 4;
-              arPatch[nRelIdx].nSizeBits := nSizeBits;
-              arPatch[nRelIdx].nInstrSize := nInstrSize;
-              arPatch[nRelIdx].nOpSizeBits := 32;  // Always 32 bits for rip relative
+              if Uint64(pRelBuffer) > $FFFFFFFF then
+                Exit(udErrExecBufferNotRelativeNear);
 
-              // Copy the value to the new location
-              CopyMemory(@arPatch[nRelIdx].nValue, PByte(pAt) + nBytesDisassembled + Integer(ud.udOperand[1].lVal), nSizeBits div 8);
+              nSizeBits := ud.udOperand[nOperand].nSize;
+              nNewRelOffset := Integer((pRelBuffer + nInstrSize) - (PByte(pAt) + nBytesDisassembled));
+
+              nOpOffsetFromEnd := 0;
+              for nOf := High(ud.udOperand) downto nOperand do
+                begin
+                  Inc(nOpOffsetFromEnd, ud.udOperand[nOf].nSize div 8);
+                end;
+
+              arPatch[nRelIdx].ptrPatch := pRelBuffer + nInstrSize - nOpOffsetFromEnd;
+              arPatch[nRelIdx].nOffset := Integer(ud.udOperand[nOperand].lVal) - nNewRelOffset;
+
+              //PInteger(arPatch[nRelIdx].ptrPatch)^ := Integer(ud.udOperand[nOperand].lVal) - nNewRelOffset;
+
               Inc(nRelIdx);
             end;
         end;
@@ -906,30 +928,9 @@ begin
       Exit(udErrExecBufferTooSmallForJumpback);
     end;
 
-  if nRelBufSize > 0 then
+  for nIndex := 0 to nRelIdx-1 do
     begin
-      for nIndex := 0 to nRelIdx-1 do
-        begin
-          nSizeBits := arPatch[nIndex].nSizeBits;
-          if nRelBufSize >= (nSizeBits div 8) then
-            begin
-              nAuxOffset := Int64(pRelBuffer) - (Int64(arPatch[nIndex].ptrPatch) + (arPatch[nIndex].nOpSizeBits div 8));
-
-              // Patch the instruction where the relative offset is with the new one
-              CopyMemory(arPatch[nIndex].ptrPatch, @nAuxOffset, arPatch[nIndex].nOpSizeBits div 8);
-
-              // Put the value where it needs to go to be loaded
-              CopyMemory(pRelBuffer, @arPatch[nIndex].nValue, arPatch[nIndex].nSizeBits div 8);
-
-              Inc(pRelBuffer, nSizeBits div 8);
-              Dec(nRelBufSize);
-            end;
-        end;
-    end
-  else
-    begin
-      // Error, not enough size in the buffer for the relative jumps
-      Exit(udErrExecBufferTooSmallForPatching);
+      PInteger(arPatch[nIndex].ptrPatch)^ := arPatch[nIndex].nOffset;
     end;
 
   Result := udErrNone;
@@ -949,6 +950,9 @@ begin
       @UdSetMode := GetProcAddress(hUdis, 'ud_set_mode');
       @UdSetInputBuffer := GetProcAddress(hUdis, 'ud_set_input_buffer');
       @UdDisassemble := GetProcAddress(hUdis, 'ud_disassemble');
+      @UdTranslateIntel := GetProcAddress(hUdis, 'ud_translate_intel');
+      @UdSetSyntax := GetProcAddress(hUdis, 'ud_set_syntax');
+      @UdInSnAsm := GetProcAddress(hUdis, 'ud_insn_asm');
 
       OutputDebugString(PWidechar('Loaded Udis86 ' + Format('%p', [Pointer(@UdInit)])));
       Result := True;

@@ -118,6 +118,12 @@ var
   pBlock      : PDHProfileBlock;
   nElapsed    : Uint64;
 begin
+  if g_ThreadID <> GetCurrentThreadID then
+    begin
+      LogDebug('ANOTHER THREAD AT EXIT BLOCK!!!!', []);
+      Exit(nil);
+    end;
+
   nElapsed := ReadTimeStamp;
 
   nAtIdx := g_DHProfileStack.nAtIndex;
@@ -132,7 +138,7 @@ begin
   pBlock.pAnchor.nElapsedExclusive := pBlock.pAnchor.nElapsedExclusive + nElapsed;
   pBlock.pAnchor.nElapsedInclusive := pBlock.nPrevTimeInclusive + nElapsed;
 
-  //OutputDebugString(Pwidechar(Format('Leaving index %d Anchor=%p', [nAtIdx, pBlock.pAnchor])));
+  //OutputDebugString(Pwidechar(Format('Leaving index %d Anchor=%p RetTarget=%p', [nAtIdx, pBlock.pAnchor, pBlock.ptrReturnTarget])));
 
   Inc(pBlock.pAnchor.nHitCount);
 
@@ -143,7 +149,6 @@ function DHExitProfileBlockException: Pointer;
 begin
   if g_DHProfileStack.nAtIndex = 0 then
     Exit(nil);
-
   Result := DHExitProfileBlock;
 end;
 
@@ -227,7 +232,8 @@ begin
       if prAnchor.nHitCount > 0 then
         begin
           Inc(nCount);
-          writer.Write(PeBorUnmangleName(prAnchor.strName));
+          //writer.Write(PeBorUnmangleName(prAnchor.strName));
+          writer.Write(prAnchor.strName);
           writer.Write(prAnchor.nElapsedExclusive);
           writer.Write(prAnchor.nElapsedInclusive);
           writer.Write(prAnchor.nHitCount);

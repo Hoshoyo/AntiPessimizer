@@ -82,14 +82,41 @@ procedure HookEpilogue;
 asm
   .noframe
   push rax
+  push rcx
+  push rdx
+  push r8
+  push r9
+  push r10
+  push r11
+
   sub rsp, 40
-  //call ExitProfileBlock  // Returns the address where we need to jump back
   call DHExitProfileBlock  // Returns the address where we need to jump back
   add rsp, 40
-  mov rcx, rax // Use rcx since rax is the return value
 
+  pop r11
+  pop r10
+  pop r9
+  pop r8
+  pop rdx
+  pop rcx
+
+  mov rcx, rax
   pop rax
   jmp rcx
+
+  {
+  push rax // jump target
+  mov rax, [rsp+8] // return value
+  push rax
+
+  mov rax, [rsp+8] // jump target
+  mov [rsp+16], rax
+
+  pop rax // restore the return value
+  add rsp, 8
+  }
+
+  // return to the jump target
 end;
 
 function HookEpilogueException: Pointer;
@@ -221,8 +248,8 @@ begin
     end
   else
     begin
-      Dispose(pExecBuffer);
       OutputDebugString(PWideChar('Could not instrument function ' + strName + ', reason=' + UdErrorToStr(udErr)));
+      Dispose(pExecBuffer);
     end;
 end;
 
@@ -557,17 +584,20 @@ var
   lstStack : TJclStackInfoList;
   lstStrings : TStringList;
 begin
-  OutputDebugString('VectoredExceptionHandler');
-  {
+  LogDebug('Exception=%x at %p RCX=%x', [ExceptionInfo.ExceptionRecord.ExceptionCode,
+    ExceptionInfo.ExceptionRecord.ExceptionAddress, ExceptionInfo.ContextRecord.Rcx]);
+
+    {
   //lstStack := JclLastExceptStackList;
   lstStack := JclCreateStackList(True, 0, nil);
   lstStrings := TStringList.Create;
   lstStack.AddToStrings(lstStrings, False, False, True);
-  LogDebug('%s', [lstStrings.Text]);
+  LogDebug(' %s', [lstStrings.Text]);
   }
 
   if HookEpilogueException <> nil then
     g_LastHookedJump^ := EpilogueJump;
+
   Result := 0;
 end;
 

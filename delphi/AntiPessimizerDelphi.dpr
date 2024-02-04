@@ -52,6 +52,37 @@ begin
 end;
 
 function BeSlowInternal: Int64; stdcall;
+asm
+  push r13
+  push rdi
+  push rsi
+  push rbx
+  sub rsp,$28
+  mov rbx,rcx
+  db $48
+  db $8B
+  db $0D
+  db $C5
+  db $C7
+  db $11
+  db $00 //  mov rcx,[rel $0011c7c5]
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+end;
+{
 begin
   Result := 45 * 32 + 123;
   Inc(Result, MoreInternal);
@@ -59,6 +90,48 @@ begin
 
   if Result > 32655 then
     Result := Result div 3;
+end;
+}
+
+function RelativeMovTest: Int64;
+asm
+  .noframe
+  sub dword ptr [rel $000fa8c9],$01
+  cmp dword ptr [rel $000fa8c2],-$01
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  push rax
+  //00000000007A3DF0 832DC9A80F0001   sub dword ptr [rel $000fa8c9],$01
+  //00000000007A3DF7 833DC2A80F00FF   cmp dword ptr [rel $000fa8c2],-$01
+  //00000000007A3DFE C3               ret
 end;
 
 function JustBeSlow: Int64;
@@ -122,9 +195,11 @@ begin
   tc := TestClass.Create;
   tb := TestBase.Create;
 
+  RelativeMovTest;
+
   JustBeSlow;
 
-  BeSlowInternal;
+  //BeSlowInternal;
 
   //CatchException;
 

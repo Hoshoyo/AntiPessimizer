@@ -49,7 +49,7 @@ end;
 var
   pipe  : THandle;
   g_PrevDllProc : procedure (Reason: Integer);
-  g_RecvCommandBuffer : array [0..1024*1024-1] of Byte;
+  g_RecvCommandBuffer : array [0..64*1024*1024-1] of Byte;
 
 procedure ProcessInstrumentationCommand(cmd : TCommand; state : PDebuggeeState);
 var
@@ -127,7 +127,7 @@ begin
   repeat
     ReadFile(pipe, g_RecvCommandBuffer[0], nToRead, nRead, nil);
 
-    //OutputDebugString(PWidechar('Command read ' + IntToStr(nToRead) + ' bytes'));
+    //OutputDebugString(PWidechar('Command read ' + IntToStr(nRead) + ' bytes'));
 
     stream.WriteBuffer(g_RecvCommandBuffer[0], nRead);
     nReadBytes := nReadBytes + nRead;
@@ -147,6 +147,7 @@ var
   writer   : TBinaryWriter;
   nWritten : DWORD;
 begin
+
   stream := TMemoryStream.Create;
   writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
 

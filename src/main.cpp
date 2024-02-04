@@ -95,7 +95,8 @@ static void
 SelectionWindow()
 {
     read_pipe_message();
-    static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
+    //static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
+    static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\Sampling\\Win64\\Debug\\SampleProfiler.exe";
     static int last_selected = -1;
 
     if (ImGui::Begin("Project"))
