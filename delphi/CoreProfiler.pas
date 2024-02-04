@@ -54,7 +54,7 @@ type
   function  DHExitProfileBlock: Pointer;
   function  DHExitProfileBlockException: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
-  procedure ProfilerSerializeResults(stream : TMemoryStream);
+  procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter);
 
   procedure PrintDHProfilerResults;
 
@@ -209,16 +209,13 @@ begin
     end;
 end;
 
-procedure ProfilerSerializeResults(stream : TMemoryStream);
+procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter);
 var
   nIndex    : Integer;
   prAnchor  : PProfileAnchor;
-  writer    : TBinaryWriter;
   nStartPos : Integer;
   nCount    : Cardinal;
 begin
-  writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
-
   nCount := 0;
   nStartPos := stream.Position;
   writer.Write(Integer(-1));
@@ -233,8 +230,8 @@ begin
       if prAnchor.nHitCount > 0 then
         begin
           Inc(nCount);
-          writer.Write(PeBorUnmangleName(prAnchor.strName));
-          //writer.Write(prAnchor.strName);
+          //writer.Write(PeBorUnmangleName(prAnchor.strName));
+          writer.Write(prAnchor.strName);
           writer.Write(prAnchor.nElapsedExclusive);
           writer.Write(prAnchor.nElapsedInclusive);
           writer.Write(prAnchor.nHitCount);
@@ -242,8 +239,6 @@ begin
     end;
 
   PCardinal(PByte(stream.Memory) + nStartPos)^ := nCount;
-
-  writer.Free;
 end;
 
 initialization

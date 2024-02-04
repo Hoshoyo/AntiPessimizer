@@ -571,24 +571,31 @@ var
   locInfo : TJclLocationInfo;
 begin
   // TODO(psv): Not handle exceptions that are not from the module address space
-  if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
-    Exit(0);
+  //if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
+  //  Exit(0);
 
   if g_ThreadID <> GetCurrentThreadID then
-    Exit(0);
-
-  LogDebug('Exception=%x at %p RCX=%x RAX=%x', [ExceptionInfo.ExceptionRecord.ExceptionCode,
+    begin
+      //LogDebug('WRONG Thread ID=%d vs %d', [g_ThreadID, GetCurrentThreadID]);
+      Exit(0);
+    end;
+ {$IF False}
+   LogDebug('Exception=%x at %p RCX=%x RAX=%x RSP=%x RBP=%x', [ExceptionInfo.ExceptionRecord.ExceptionCode,
     ExceptionInfo.ExceptionRecord.ExceptionAddress,
     ExceptionInfo.ContextRecord.Rcx,
-    ExceptionInfo.ContextRecord.Rax]);
-{$IF False}
+    ExceptionInfo.ContextRecord.Rax,
+    ExceptionInfo.ContextRecord.Rsp,
+    ExceptionInfo.ContextRecord.Rbp]);
+
   nStackCount := RtlCaptureStackBackTrace(0, 64, @BackTrace[0], nil);
+  LogDebug('Stack count=%d', [nStackCount]);
 
   for nIndex := 0 to nStackCount-1 do
     begin
       locInfo := GetLocationInfo(BackTrace[nIndex]);
       LogDebug('%p %s:%d', [BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
     end;
+    {
 
   lstStack := JclCreateStackList(True, 0, nil);
 
@@ -604,6 +611,7 @@ begin
   LogDebug('2', []);
   LogDebug(' %s', [lstStrings.Text]);
   LogDebug('3', []);
+  }
 
   ExitProcess(1);
 {$ENDIF}

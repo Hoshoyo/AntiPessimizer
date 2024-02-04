@@ -47,9 +47,14 @@ begin
 end;
 
 var
+  sendstream  : TMemoryStream;
+  sendwriter  : TBinaryWriter;
+  recvstream  : TMemoryStream;
+  recvwriter  : TBinaryWriter;
   pipe  : THandle;
   g_PrevDllProc : procedure (Reason: Integer);
   g_RecvCommandBuffer : array [0..64*1024*1024-1] of Byte;
+  g_bInstrumentationReady : Boolean = False;
 
 procedure ProcessInstrumentationCommand(cmd : TCommand; state : PDebuggeeState);
 var
@@ -78,7 +83,6 @@ begin
 
   OutputDebugString(PWidechar('Finished reading command from pipe ' + IntToStr(nProcCount) + ' procedures.'));
   reader.Free;
-  cmd.stream.Free;
 
   // Process command instrumentation
   lstProcToInstrumentInfo := TList<TInstrumentedProc>.Create;
@@ -98,6 +102,7 @@ begin
 
   // Say that we are ready to the debugger
   OutputDebugString(PWidechar('AntiPessimizerReady'));
+  g_bInstrumentationReady := True;
 end;
 
 procedure ProcessSendAllModules(pipe : THandle; state : PDebuggeeState);
@@ -108,17 +113,14 @@ end;
 function WaitForCommand(pipe : THandle): TCommand;
 var
   nRead      : Cardinal;
-  stream     : TMemoryStream;
   nSize      : Cardinal;
   nReadBytes : Cardinal;
   nToRead    : Cardinal;
 begin
-  stream := TMemoryStream.Create;
-
   //OutputDebugString(PWidechar('Waiting for command in the pipe'));
 
   if not ReadFile(pipe, nSize, Sizeof(Cardinal), nRead, nil) then
-    Sleep(100);
+    Sleep(10);
   nToRead := nSize;
   nReadBytes := 0;
 
@@ -129,65 +131,75 @@ begin
 
     //OutputDebugString(PWidechar('Command read ' + IntToStr(nRead) + ' bytes'));
 
-    stream.WriteBuffer(g_RecvCommandBuffer[0], nRead);
+    recvstream.WriteBuffer(g_RecvCommandBuffer[0], nRead);
     nReadBytes := nReadBytes + nRead;
     nToRead := nToRead - nRead;
   until (nReadBytes = nSize);
 
   //OutputDebugString(PWidechar('Received command ' + IntToStr(nReadBytes) + ' bytes in the pipe'));
 
-  stream.Position := Sizeof(TCommandType);
-  Result.stream := stream;
+  recvstream.Position := Sizeof(TCommandType);
+  Result.stream := recvstream;
   Result.ctType := PCommandType(@g_RecvCommandBuffer[0])^;
 end;
 
-procedure ProcessSendResults(pipe : THandle);
+procedure ProcessSendResults(pipe : THandle; stream : TMemoryStream; writer : TBinaryWriter);
 var
-  stream   : TMemoryStream;
-  writer   : TBinaryWriter;
   nWritten : DWORD;
 begin
-  stream := TMemoryStream.Create;
-  writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
+  if not g_bInstrumentationReady then
+    Exit;
+
+  stream.Position := 0;
 
   writer.Write(Integer(-1));
   writer.Write(Cardinal(ctProfilingData));
 
-  ProfilerSerializeResults(stream);
+  ProfilerSerializeResults(stream, writer);
 
   PCardinal(stream.Memory)^ := stream.Position - Sizeof(Cardinal);
 
-  //LogDebug('Sending Profiling results to pipe', []);
+  //LogDebug('Sending Profiling results to pipe %d', [stream.Size]);
 
-  WriteFile(pipe, PByte(stream.Memory)^, stream.Size, nWritten, nil);
-  writer.Free;
+  if stream.Size > 0 then
+    WriteFile(pipe, PByte(stream.Memory)^, stream.Size, nWritten, nil);
 end;
 
 function Worker(pParam : Pointer): DWORD; stdcall;
 var
-
-  state : TDebuggeeState;
-  cmd   : TCommand;
+  state  : TDebuggeeState;
+  cmd    : TCommand;
 begin
   pipe := CreateFileA('\\.\pipe\AntiPessimizerPipe', GENERIC_READ or GENERIC_WRITE, 0, nil,
     OPEN_EXISTING, 0, 0);
   OutputDebugString(PWidechar('AntiPessimizerPipeReady Pipe=' + IntToStr(pipe)));
+
+  sendstream := TMemoryStream.Create;
+  sendwriter := TBinaryWriter.Create(sendstream, TEncoding.UTF8);
+  recvstream := TMemoryStream.Create;
+  recvwriter := TBinaryWriter.Create(recvstream, TEncoding.UTF8);
 
   if pipe = INVALID_HANDLE_VALUE then
     Exit(1);
 
   ZeroMemory(@state, sizeof(state));
 
+  try
   repeat
+    recvstream.Position := 0;
     cmd := WaitForCommand(pipe);
 
     //OutputDebugString(PWidechar('Received command of type=' + IntToStr(Integer(cmd.ctType))));
     case cmd.ctType of
       ctRequestProcedures:   ProcessSendAllModules(pipe, @state);
       ctInstrumetProcedures: ProcessInstrumentationCommand(cmd, @state);
-      ctProfilingData:       ProcessSendResults(pipe);
+      ctProfilingData:       ProcessSendResults(pipe, sendstream, sendwriter);
     end;
   until (cmd.ctType = ctEnd);
+  except
+    on E: Exception do
+      LogDebug('Exception %s', [E.Message]);
+  end;
 
   Result := 0;
 end;
@@ -196,7 +208,7 @@ procedure DLLHandler(Reason: Integer);
 begin
   if Reason = DLL_PROCESS_DETACH then
     begin
-      ProcessSendResults(pipe);
+      ProcessSendResults(pipe, sendstream, sendwriter);
     end;
   LogDebug('DLL Event %d', [Reason]);
   if @g_PrevDllProc <> nil then

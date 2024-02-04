@@ -411,6 +411,7 @@ antipessimizer_start(const char* filepath)
 
     if (g_module_table.modules)
     {
+        InstrumentedProcedure* instrumented = array_new(InstrumentedProcedure);
         for (int i = 0; i < array_length(g_module_table.modules); ++i)
         {
             ExeModule* em = g_module_table.modules + i;
@@ -419,7 +420,11 @@ antipessimizer_start(const char* filepath)
                 for (int k = array_length(em->procedures) - 1; k >= 0; --k)
                 {
                     InstrumentedProcedure* ip = em->procedures + k;
-                    if (string_has_prefix_char((char*)"System.", ip->demangled_name))
+                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name))
+                    {
+                        array_push(instrumented, em->procedures[k]);
+                    }
+                    else
                     {
                         array_remove(em->procedures, k);
                     }
@@ -443,22 +448,24 @@ antipessimizer_start(const char* filepath)
                     }
 #endif
                 }
-
-                int proc_count = array_length(em->procedures);
-                *(int*)at = proc_count;
-                at += sizeof(int);
-
-                for (int k = 0; k < array_length(em->procedures); ++k)
-                {
-                    InstrumentedProcedure* ip = em->procedures + k;
-                    int len = write_7bit_encoded_int(ip->name.length, at);
-                    at += len;
-
-                    memcpy(at, ip->name.data, ip->name.length);
-                    at += ip->name.length;
-                }
-            }
+            }            
         }
+
+        int proc_count = array_length(instrumented);
+        *(int*)at = proc_count;
+        at += sizeof(int);
+
+        for (int k = array_length(instrumented)-1; k >= 0; --k)
+        {
+            InstrumentedProcedure* ip = instrumented + k;
+            int len = write_7bit_encoded_int(ip->name.length, at);
+            at += len;
+
+            memcpy(at, ip->name.data, ip->name.length);
+            at += ip->name.length;
+        }
+        array_free(instrumented);
+
         *size = (uint32_t)(at - antip.send_buffer - sizeof(uint32_t));
 
         DWORD written = 0;

@@ -97,8 +97,9 @@ SelectionWindow()
     read_pipe_message();
     //static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
     static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\Sampling\\Win64\\Debug\\SampleProfiler.exe";
-    static char filter[128] = "Vcl.Forms";
+    static char filter[128];// = "Vcl.Forms";
     static int last_selected = -1;
+    static bool rt_results;
 
     if (ImGui::Begin("Project"))
     {
@@ -118,11 +119,14 @@ SelectionWindow()
             antipessimizer_start(process_filepath);
         }
         ImGui::NextColumn();
+        
         if (ImGui::Button("Result"))
         {
             antipessimizer_request_result();
+            rt_results = !rt_results;
         }
-        antipessimizer_request_result();
+        if (rt_results)
+            antipessimizer_request_result();
 
         ImGui::Columns(1);
         ImGui::InputText("Filepath", process_filepath, sizeof(process_filepath));
