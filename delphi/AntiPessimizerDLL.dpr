@@ -147,7 +147,6 @@ var
   writer   : TBinaryWriter;
   nWritten : DWORD;
 begin
-
   stream := TMemoryStream.Create;
   writer := TBinaryWriter.Create(stream, TEncoding.UTF8);
 

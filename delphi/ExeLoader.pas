@@ -67,6 +67,7 @@ var
   g_hKernel : THandle;
   g_InfoSourceClassList : TList = nil;
   g_LastHookedJump : PPointer = nil;
+  RtlCaptureStackBackTrace : function(FramesToSkip, FramesToCapture : DWORD; BackTrace : PVOID; BackTraceHash : Pointer): Word; stdcall;
 {$IFDEF MEASURE_HOOKING_TIME}
   g_StartRdtsc : Uint64;
   g_GlobalHitCount : Integer = 0;
@@ -583,22 +584,50 @@ function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 var
   lstStack : TJclStackInfoList;
   lstStrings : TStringList;
+  nIndex : Integer;
+  nStackCount : Word;
+  BackTrace : array [0..63] of Pointer;
+  locInfo : TJclLocationInfo;
 begin
-  LogDebug('Exception=%x at %p RCX=%x', [ExceptionInfo.ExceptionRecord.ExceptionCode,
-    ExceptionInfo.ExceptionRecord.ExceptionAddress, ExceptionInfo.ContextRecord.Rcx]);
+  //if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
+  //  Exit(0);
 
-                                {
-  //lstStack := JclLastExceptStackList;
+  if g_ThreadID <> GetCurrentThreadID then
+    Exit(0);
+
+  LogDebug('Exception=%x at %p RCX=%x RAX=%x', [ExceptionInfo.ExceptionRecord.ExceptionCode,
+    ExceptionInfo.ExceptionRecord.ExceptionAddress,
+    ExceptionInfo.ContextRecord.Rcx,
+    ExceptionInfo.ContextRecord.Rax]);
+{
+  nStackCount := RtlCaptureStackBackTrace(0, 64, @BackTrace[0], nil);
+
+  for nIndex := 0 to nStackCount-1 do
+    begin
+      locInfo := GetLocationInfo(BackTrace[nIndex]);
+      LogDebug('%p %s:%d', [BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
+    end;
+
   lstStack := JclCreateStackList(True, 0, nil);
+
+  LogDebug('Stack=%p', [lstStack]);
+  LogDebug('Stack size=%d', [lstStack.Count]);
+  for nIndex := 0 to lstStack.Count-1 do
+    begin
+      LogDebug('%x', [lstStack.Items[nIndex].CallerAddr]);
+    end;
+
   lstStrings := TStringList.Create;
   lstStack.AddToStrings(lstStrings, False, False, True);
+  LogDebug('2', []);
   LogDebug(' %s', [lstStrings.Text]);
-
-  if HookEpilogueException <> nil then
-    g_LastHookedJump^ := EpilogueJump;
+  LogDebug('3', []);
 
   ExitProcess(1);
   }
+
+  if HookEpilogueException <> nil then
+    g_LastHookedJump^ := EpilogueJump;
 
   Result := 0;
 end;
@@ -666,6 +695,7 @@ begin
       if @AddVectoredExceptionHandler <> nil then
         AddVectoredExceptionHandler(1, @ExceptionHandler);
       @RemoveVectoredExceptionHandler := GetProcAddress(g_hKernel, 'RemoveVectoredExceptionHandler');
+      @RtlCaptureStackBackTrace := GetProcAddress(g_hKernel, 'RtlCaptureStackBackTrace');
     end;
 end;
 

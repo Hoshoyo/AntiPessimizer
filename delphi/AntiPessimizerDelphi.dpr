@@ -199,9 +199,9 @@ begin
   tc := TestClass.Create;
   tb := TestBase.Create;
 
-  RelativeMovTest;
+  //RelativeMovTest;
 
-  JustBeSlow;
+  //JustBeSlow;
 
   //BeSlowInternal;
 
