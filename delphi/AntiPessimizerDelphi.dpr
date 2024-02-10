@@ -25,9 +25,26 @@ type
     function TestProc: Integer; override;
   end;
 
+  TWorker = class(TThread)
+    procedure Execute; override;
+  end;
+
 procedure PrintAStatement;
 begin
   Writeln('Hello World');
+end;
+
+procedure TWorker.Execute;
+var
+  tc : TestClass;
+begin
+  tc := TestClass.Create;
+  while true do
+    begin
+      tc.TestProc;
+      //Writeln(IntToStr(ThreadID));
+      Sleep(100);
+    end;
 end;
 
 function TestBase.TestProc: Integer;
@@ -37,8 +54,12 @@ begin
 end;
 function TestClass.TestProc: Integer;
 begin
-  //Writeln('test');
-  Result := 32;
+  Result := 45 * 32 + 123;
+  Inc(Result);
+  Dec(Result);
+
+  if Result > 32655 then
+    Result := Result div 3;
 end;
 
 function MoreInternal: Int64; stdcall;
@@ -162,44 +183,37 @@ procedure TestFunction;
 var
   tc : TestClass;
   tb : TestBase;
-  nIndex: Integer;
+  tw1 : TWorker;
+  tw2 : TWorker;
 begin
-  tc := TestClass.Create;
-  tb := TestBase.Create;
-
   //RelativeMovTest;
+
+  CatchException;
+  PrintAStatement;
 
   JustBeSlow;
 
-  CatchException;
+  tc := TestClass.Create;
+  tb := TestBase.Create;
 
-  for nIndex := 0 to 10000 do
+  tw1 := TWorker.Create;
+  tw2 := TWorker.Create;
+
+  while True do
     begin
-      tc.TestProc;
-      tb.TestProc;
-      tc.TestProc;
-      tc.TestProc;
-      tc.TestProc;
-      tc.TestProc;
-      tc.TestProc;
-      tc.TestProc;
-      tc.TestProc;
+      PrintDHProfilerResults;
+      Sleep(1000);
     end;
-  PrintAStatement;
+
+  tw1.WaitFor;
+  tw2.WaitFor;
 end;
 
-var
-  lstStack : TJclStackInfoList;
-  nValue : Integer;
-  strList : TStringList;
 begin
   InstrumentModuleProcs;
 
   TestFunction;
-  //PrintProfilerResults;
   PrintDHProfilerResults;
-
-  Writeln('Profiler took ' + ProfilerCycleTime + ' cycles on average');
 end.
 
 

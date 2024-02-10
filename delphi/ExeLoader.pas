@@ -1,7 +1,5 @@
 unit ExeLoader;
 
-//{$DEFINE MEASURE_HOOKING_TIME 1}
-
 interface
 uses
   Udis86,
@@ -39,11 +37,13 @@ type
     procInfo : TJclTD32ProcSymbolInfo;
   end;
 
-  function ProfilerCycleTime: String;
   function  ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;
   procedure InstrumentModuleProcs;
   procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
-  function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
+  function  ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
+
+  procedure PrintDebugStack(ExceptionInfo : PEXCEPTION_POINTERS);
+  procedure PrintRegisters(ExceptionInfo : PEXCEPTION_POINTERS);
 
 implementation
 uses
@@ -68,11 +68,6 @@ var
   g_InfoSourceClassList : TList = nil;
   g_LastHookedJump : PPointer = nil;
   RtlCaptureStackBackTrace : function(FramesToSkip, FramesToCapture : DWORD; BackTrace : PVOID; BackTraceHash : Pointer): Word; stdcall;
-{$IFDEF MEASURE_HOOKING_TIME}
-  g_StartRdtsc : Uint64;
-  g_GlobalHitCount : Integer = 0;
-  g_SumHookTime : UInt64;
-{$ENDIF}
 
 procedure RemoveHandler;
 begin
@@ -140,7 +135,24 @@ asm
   shr r11, 8
   shr r10, 56
 
-  mov qword ptr[EpilogueJump], rax // save the old return address
+  push rcx
+  push rdx
+  push rbx
+  mov rbx, qword ptr gs:[$30]
+  lea rcx, [g_ThreadTranslateT]
+  xor rdx, rdx
+  mov edx, dword ptr [rbx+$48] // ThreadID
+  shl rdx, 5 // * sizeof (TThrTranslate)
+  add rcx, rdx
+
+  mov qword ptr[rcx], rax     // save the old return address EpilogueJump Address
+
+  lea rdx, [rsp+32]           // save the last hook jump
+  mov qword ptr[rcx+8], rdx
+
+  pop rbx
+  pop rdx
+  pop rcx
 
   lea rax, HookEpilogue
   mov qword ptr[rsp+8], rax // mov new address as return
@@ -149,7 +161,7 @@ asm
   // stack appears unaligned, since the HookJump is called via "call"
   pop rax
 
-  mov g_LastHookedJump, rsp
+  //mov g_LastHookedJump, rsp
 
   // Whatever it needs to be done do it here
     // Naive implementation for now
@@ -178,11 +190,21 @@ asm
   jmp r11
 end;
 
-function ProfilerCycleTime: String;
+function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 begin
-{$IFDEF MEASURE_HOOKING_TIME}
-  Result := (g_SumHookTime / g_GlobalHitCount).ToString;
-{$ENDIF}
+  // TODO(psv): Not handle exceptions that are not from the module address space
+  if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
+    Exit(0);
+
+  //PrintRegisters(ExceptionInfo);
+  //PrintDebugStack(ExceptionInfo);  
+
+  if HookEpilogueException <> nil then
+    begin
+      g_ThreadTranslateT[GetCurrentThreadID].pLastHookJmp^ := g_ThreadTranslateT[GetCurrentThreadID].pEpilogueJmp;
+    end;
+
+  Result := 0;
 end;
 
 function GetBase(obj: TObject): TJclPeBorTD32Image;
@@ -204,7 +226,7 @@ var
   udErr       : TUdisDisasmError;
 begin
   New(pExecBuffer);
-  pAnchor.ptrExecBuffer := pExecBuffer;
+  pAnchor.nThreadID := -1;
   pAnchor.strName := strName;
 
   OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s Addr=%p', [pExecBuffer, strName, pProcAddr])));
@@ -561,7 +583,17 @@ begin
   OutputDebugString('End of instrumentation');
 end;
 
-function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
+procedure PrintRegisters(ExceptionInfo : PEXCEPTION_POINTERS);
+begin
+  LogDebug('Exception=%x at %p RCX=%x RAX=%x RSP=%x RBP=%x', [ExceptionInfo.ExceptionRecord.ExceptionCode,
+    ExceptionInfo.ExceptionRecord.ExceptionAddress,
+    ExceptionInfo.ContextRecord.Rcx,
+    ExceptionInfo.ContextRecord.Rax,
+    ExceptionInfo.ContextRecord.Rsp,
+    ExceptionInfo.ContextRecord.Rbp]);
+end;
+
+procedure PrintDebugStack(ExceptionInfo : PEXCEPTION_POINTERS);
 var
   lstStack : TJclStackInfoList;
   lstStrings : TStringList;
@@ -570,23 +602,6 @@ var
   BackTrace : array [0..63] of Pointer;
   locInfo : TJclLocationInfo;
 begin
-  // TODO(psv): Not handle exceptions that are not from the module address space
-  //if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
-  //  Exit(0);
-
-  if g_ThreadID <> GetCurrentThreadID then
-    begin
-      //LogDebug('WRONG Thread ID=%d vs %d', [g_ThreadID, GetCurrentThreadID]);
-      Exit(0);
-    end;
- {$IF False}
-   LogDebug('Exception=%x at %p RCX=%x RAX=%x RSP=%x RBP=%x', [ExceptionInfo.ExceptionRecord.ExceptionCode,
-    ExceptionInfo.ExceptionRecord.ExceptionAddress,
-    ExceptionInfo.ContextRecord.Rcx,
-    ExceptionInfo.ContextRecord.Rax,
-    ExceptionInfo.ContextRecord.Rsp,
-    ExceptionInfo.ContextRecord.Rbp]);
-
   nStackCount := RtlCaptureStackBackTrace(0, 64, @BackTrace[0], nil);
   LogDebug('Stack count=%d', [nStackCount]);
 
@@ -595,8 +610,7 @@ begin
       locInfo := GetLocationInfo(BackTrace[nIndex]);
       LogDebug('%p %s:%d', [BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
     end;
-    {
-
+  {
   lstStack := JclCreateStackList(True, 0, nil);
 
   LogDebug('Stack=%p', [lstStack]);
@@ -614,12 +628,6 @@ begin
   }
 
   ExitProcess(1);
-{$ENDIF}
-
-  if HookEpilogueException <> nil then
-    g_LastHookedJump^ := EpilogueJump;
-
-  Result := 0;
 end;
 
 function ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;
@@ -634,6 +642,7 @@ var
   nWritten  : Cardinal;
   nIndex    : Integer;
   strName   : String;
+  nStart    : Uint64;
 begin
   if not g_bUdisLoaded then
     Exit(nil);
@@ -641,7 +650,10 @@ begin
   OutputDebugString('------------------- ExeLoaderSendAllModules ---------------------');
 
   Module := GetModuleHandle(nil);
+  nStart := ReadTimeStamp;
   dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
+  LogDebug('LoadModuleProcDebugInfoForModule elapsed=%f ms', [CyclesToMs(ReadTimeStamp - nStart)]);
+
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
 
   stream := TMemoryStream.Create;
@@ -654,7 +666,7 @@ begin
 
   for Item in dcProcsByModule do
     begin
-      OutputDebugString(PWidechar(Item.Key + ' Count=' + IntToStr(Item.Value.Count)));
+      //OutputDebugString(PWidechar(Item.Key + ' Count=' + IntToStr(Item.Value.Count)));
       writer.Write(Item.Key);
       writer.Write(Integer(Item.Value.Count));
       for nIndex := 0 to Item.Value.Count-1 do

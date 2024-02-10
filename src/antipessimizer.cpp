@@ -420,7 +420,10 @@ antipessimizer_start(const char* filepath)
                 for (int k = array_length(em->procedures) - 1; k >= 0; --k)
                 {
                     InstrumentedProcedure* ip = em->procedures + k;
-                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name))
+                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name) 
+                        //&& string_has_prefix_char((char*)"Languageeditorformu", ip->demangled_name)
+                        && string_has_prefix_char((char*)"Pagedataserieu", ip->demangled_name)
+                        )
                     {
                         array_push(instrumented, em->procedures[k]);
                     }

@@ -96,8 +96,8 @@ SelectionWindow()
 {
     read_pipe_message();
     //static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
-    static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\Sampling\\Win64\\Debug\\SampleProfiler.exe";
-    static char filter[128];// = "Vcl.Forms";
+    static char process_filepath[MAX_PATH] = "C:\\Users\\T-GAMER\\Desktop\\temp\\KoTWithTD32\\KoT.PROFIT_64";
+    static char filter[128] = "LanguageEditorForm";
     static int last_selected = -1;
     static bool rt_results;
 
@@ -125,7 +125,7 @@ SelectionWindow()
             antipessimizer_request_result();
             rt_results = !rt_results;
         }
-        if (rt_results)
+        //if (rt_results)
             antipessimizer_request_result();
 
         ImGui::Columns(1);
@@ -166,7 +166,7 @@ SelectionWindow()
     }
 
     if (ImGui::Begin("Procedures"))
-    {
+    {     
         if (ImGui::BeginTable("split1", 1, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
         {
             if (g_module_table.modules != 0 && last_selected >= 0 && last_selected < array_length(g_module_table.modules))
@@ -192,6 +192,7 @@ SelectionWindow()
 
 int main(int, char**)
 {
+    DWORD foo = GetCurrentThreadId();
     // Create application window
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0, GetModuleHandle(0), 0, 0, 0, 0, L"AntiPessimizerClass", 0 };
     RegisterClassExW(&wc);
