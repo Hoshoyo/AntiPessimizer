@@ -38,6 +38,7 @@ procedure TWorker.Execute;
 var
   tc : TestClass;
 begin
+  NameThreadForDebugging('Profit.' + Self.ClassName);
   tc := TestClass.Create;
   while true do
     begin
@@ -147,16 +148,17 @@ begin
   nValue := 3;
   Inc(nValue);
   Dec(nValue);
-  nValue := PInteger(0)^;
+  //nValue := PInteger(0)^;
+  raise Exception.Create('Error Message');
 end;
 
 procedure CatchException;
-{$IFDEF CRASH_EARLY}
+{$IFNDEF CRASH_EARLY}
 var
   nValue : Integer;
 {$ENDIF}
 begin
-{$IFDEF CRASH_EARLY}
+{$IFNDEF CRASH_EARLY}
   nValue := 3;
   Inc(nValue);
   Dec(nValue);
@@ -166,6 +168,34 @@ begin
   except
     on E: Exception do
       Writeln(E.Message);
+  end;
+end;
+
+procedure RaiseBack;
+begin
+  DoAnException;
+end;
+
+procedure ThirdLevel;
+var
+  nValue : Integer;
+begin
+  nValue := 3;
+  Inc(nValue);
+  Dec(nValue);
+    Inc(nValue);
+  Dec(nValue);
+    Inc(nValue);
+  Dec(nValue);
+    Inc(nValue);
+  Dec(nValue);
+    Inc(nValue);
+  Dec(nValue);
+  try
+  RaiseBack
+  except
+    Writeln('FInally');
+    raise;
   end;
 end;
 
@@ -188,9 +218,17 @@ var
 begin
   //RelativeMovTest;
 
-  CatchException;
+  try
+    ThirdLevel;
+  except
+    on E: Exception do
+      Writeln('Foo');
+  end;
+
+  //CatchException;
   PrintAStatement;
 
+ {
   JustBeSlow;
 
   tc := TestClass.Create;
@@ -207,6 +245,7 @@ begin
 
   tw1.WaitFor;
   tw2.WaitFor;
+  }
 end;
 
 begin

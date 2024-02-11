@@ -420,9 +420,22 @@ antipessimizer_start(const char* filepath)
                 for (int k = array_length(em->procedures) - 1; k >= 0; --k)
                 {
                     InstrumentedProcedure* ip = em->procedures + k;
+
+#if 0
+                    if (
+                        string_equal_char((char*)"_ZN14Pagedataserieu14TPageDataSerie9EditBatchEPS0_ii", ip->name) 
+                        //|| string_equal_char((char*)"_ZN14Pagedataserieu14TPageDataSerie11ReleasePageEPN6System11StaticArrayIhLi32768EEE", ip->name)
+                        )
+                    {
+                        //array_remove(em->procedures, k);
+                        array_push(instrumented, em->procedures[k]);
+                    }
+                    else
+                        array_remove(em->procedures, k);
+#else
                     if (!string_has_prefix_char((char*)"System.", ip->demangled_name) 
                         //&& string_has_prefix_char((char*)"Languageeditorformu", ip->demangled_name)
-                        && string_has_prefix_char((char*)"Pagedataserieu", ip->demangled_name)
+                        //&& string_has_prefix_char((char*)"Pagedataserieu.TPageDataSerie", ip->demangled_name)
                         )
                     {
                         array_push(instrumented, em->procedures[k]);
@@ -431,16 +444,8 @@ antipessimizer_start(const char* filepath)
                     {
                         array_remove(em->procedures, k);
                     }
-#if 1
-#elif 1
-                    else if (
-                        !(string_equal_char((char*)"_ZN3Vcl5Forms11TCustomFormC3EPN6System7Classes10TComponentE", ip->name) ||
-                        string_equal_char((char*)"_ZN3Vcl5Forms11TCustomForm10SetVisibleEb", ip->name))
-                        )
-                    {
-                        array_remove(em->procedures, k);
-                    }
-#else
+#endif
+#if 0
                     else if (
                         !string_has_prefix_char((char*)"_ZN3Vcl5Forms11TCustomFormD0Ev", ip->name) &&
                         !string_has_prefix_char((char*)"_ZN3Vcl5Forms11TCustomFormC3EPN6System7Classes10TComponentE", ip->name) &&                        
@@ -455,10 +460,12 @@ antipessimizer_start(const char* filepath)
         }
 
         int proc_count = array_length(instrumented);
+        //proc_count = 31;
+
         *(int*)at = proc_count;
         at += sizeof(int);
 
-        for (int k = array_length(instrumented)-1; k >= 0; --k)
+        for (int k = proc_count-1; k >= 0; --k)
         {
             InstrumentedProcedure* ip = instrumented + k;
             int len = write_7bit_encoded_int(ip->name.length, at);

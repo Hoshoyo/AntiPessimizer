@@ -191,18 +191,19 @@ asm
 end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
+var
+  pLastHook : PPointer;
 begin
+  LogDebug('Exception at %p Thread %d', [ExceptionInfo.ExceptionRecord.ExceptionAddress, GetCurrentThreadID]);
+  
   // TODO(psv): Not handle exceptions that are not from the module address space
-  if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
-    Exit(0);
+  //if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
+  //  Exit(0);
 
   //PrintRegisters(ExceptionInfo);
-  //PrintDebugStack(ExceptionInfo);  
+  //PrintDebugStack(ExceptionInfo);
 
-  if HookEpilogueException <> nil then
-    begin
-      g_ThreadTranslateT[GetCurrentThreadID].pLastHookJmp^ := g_ThreadTranslateT[GetCurrentThreadID].pEpilogueJmp;
-    end;
+  HookEpilogueException;
 
   Result := 0;
 end;
@@ -609,6 +610,7 @@ begin
     begin
       locInfo := GetLocationInfo(BackTrace[nIndex]);
       LogDebug('%p %s:%d', [BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
+      //LogDebug('%p', [BackTrace[nIndex]]);
     end;
   {
   lstStack := JclCreateStackList(True, 0, nil);
@@ -627,7 +629,7 @@ begin
   LogDebug('3', []);
   }
 
-  ExitProcess(1);
+  //ExitProcess(1);
 end;
 
 function ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;
@@ -651,6 +653,7 @@ begin
 
   Module := GetModuleHandle(nil);
   nStart := ReadTimeStamp;
+
   dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
   LogDebug('LoadModuleProcDebugInfoForModule elapsed=%f ms', [CyclesToMs(ReadTimeStamp - nStart)]);
 

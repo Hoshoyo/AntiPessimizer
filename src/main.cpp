@@ -95,9 +95,10 @@ static void
 SelectionWindow()
 {
     read_pipe_message();
-    //static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
-    static char process_filepath[MAX_PATH] = "C:\\Users\\T-GAMER\\Desktop\\temp\\KoTWithTD32\\KoT.PROFIT_64";
-    static char filter[128] = "LanguageEditorForm";
+    static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
+    //static char process_filepath[MAX_PATH] = "C:\\Users\\T-GAMER\\Desktop\\temp\\KoTWithTD32\\KoT.PROFIT_64";
+    //static char filter[128] = "LanguageEditorForm";
+    static char filter[128] = "Dummy";
     static int last_selected = -1;
     static bool rt_results;
 

@@ -42,6 +42,7 @@ type
     nStartTime         : Uint64;
     nPrevTimeInclusive : Uint64;
     ptrReturnTarget    : Pointer;
+    ptrLastHookJump    : Pointer;
   end;
   PDHProfileBlock = ^TDHProfileBlock;
 
@@ -169,6 +170,9 @@ begin
   pBlock.pParentAnchor := g_DHProfileStack[nThrIdx].pbBlocks[nAtIdx-1].pParentAnchor;
   pBlock.pAnchor := pAnchor;
   pBlock.ptrReturnTarget := pEpilogueJmp;
+  pBlock.ptrLastHookJump := g_ThreadTranslateT[GetCurrentThreadID].pLastHookJmp;
+
+  //LogDebug(' Enter - ThreadIndex=%d AtIdx=%d Block=%p %d %s', [nThrIdx, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
 
   pBlock.nPrevTimeInclusive := pBlock.pAnchor.nElapsedInclusive;
   pBlock.nStartTime := ReadTimeStamp;
@@ -184,6 +188,8 @@ begin
   nElapsed := ReadTimeStamp;
 
   nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
+  if nThrIndex = -1 then
+    Exit(0);
 
   nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
   pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
@@ -191,7 +197,9 @@ begin
 
   nElapsed := nElapsed - pBlock.nStartTime;
 
-  if pBlock.pParentAnchor <> nil then  
+  //LogDebug(' Exit - ThreadIndex=%d AtIdx=%d Block=%p ThreadID=%d Anchor=%p', [nThrIndex, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor]);
+
+  if pBlock.pParentAnchor <> nil then
     pBlock.pParentAnchor.nElapsedExclusive := pBlock.pParentAnchor.nElapsedExclusive - nElapsed;
   pBlock.pAnchor.nElapsedExclusive := pBlock.pAnchor.nElapsedExclusive + nElapsed;
   pBlock.pAnchor.nElapsedInclusive := pBlock.nPrevTimeInclusive + nElapsed;
@@ -203,12 +211,21 @@ end;
 
 function DHExitProfileBlockException: Pointer;
 var
-  nThrIndex      : Integer;
+  nThrIndex    : Integer;
+  pLastHookJmp : PPointer;
+  pBlock       : PDHProfileBlock;
+  nAtIdx       : Integer;
 begin
   nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
-  if g_DHProfileStack[nThrIndex].nAtIndex = 0 then
+  if (nThrIndex = -1) or (g_DHProfileStack[nThrIndex].nAtIndex = 0) then
     Exit(nil);
   Result := DHExitProfileBlock;
+  nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex + 1;
+  pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
+
+  pLastHookJmp := pBlock.ptrLastHookJump;
+  if pLastHookJmp <> nil then
+    pLastHookJmp^ := Result;
 end;
 
 function CyclesToMs(nCycles : Int64): Double;
