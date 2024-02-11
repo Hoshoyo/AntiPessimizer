@@ -86,7 +86,7 @@ uses
 
 var
   g_DHTableProfiler  : Pointer;           // This table is the hashtable for the anchors, the offsets correspond directly to addresses
-  g_DHProfileStack   : array of TDHProfilerStack;  // The memory used as a stack to keep in flight profiling data
+  g_DHProfileStack   : array [0..16] of TDHProfilerStack;  // The memory used as a stack to keep in flight profiling data
 
   g_ThreadAllocIndex : Integer;
   g_nCyclesPerSecond : Int64;
@@ -96,7 +96,6 @@ procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : I
 var
   nIndex : Integer;
 begin
-  SetLength(g_DHProfileStack, 16);
   g_DHProfileStack[0].pbBlocks[0].pAnchor := PProfileAnchor(PByte(pAnchor) - sizeof(TProfileAnchor));
   g_DHProfileStack[0].pbBlocks[0].pParentAnchor := PProfileAnchor(PByte(pAnchor) - sizeof(TProfileAnchor));
   g_DHTableProfiler := pAnchor;
@@ -106,6 +105,7 @@ begin
   ZeroMemory(@g_ThreadTranslateT[0], sizeof(g_ThreadTranslateT));
   For nIndex := 0 to Length(g_ThreadTranslateT)-1 do
     g_ThreadTranslateT[nIndex].nThreadIndex := -1;
+  LogDebug('### InitializeDHProfilerTable ###', []);
 end;
 
 // Direct hashed anchored profiler
@@ -172,7 +172,7 @@ begin
   pBlock.ptrReturnTarget := pEpilogueJmp;
   pBlock.ptrLastHookJump := g_ThreadTranslateT[GetCurrentThreadID].pLastHookJmp;
 
-  //LogDebug(' Enter - ThreadIndex=%d AtIdx=%d Block=%p %d %s', [nThrIdx, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
+  LogDebug(' Enter - ThreadIndex=%d AtIdx=%d Block=%p %d %s', [nThrIdx, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
 
   pBlock.nPrevTimeInclusive := pBlock.pAnchor.nElapsedInclusive;
   pBlock.nStartTime := ReadTimeStamp;
@@ -197,12 +197,12 @@ begin
 
   nElapsed := nElapsed - pBlock.nStartTime;
 
-  //LogDebug(' Exit - ThreadIndex=%d AtIdx=%d Block=%p ThreadID=%d Anchor=%p', [nThrIndex, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor]);
-
   if pBlock.pParentAnchor <> nil then
     pBlock.pParentAnchor.nElapsedExclusive := pBlock.pParentAnchor.nElapsedExclusive - nElapsed;
   pBlock.pAnchor.nElapsedExclusive := pBlock.pAnchor.nElapsedExclusive + nElapsed;
   pBlock.pAnchor.nElapsedInclusive := pBlock.nPrevTimeInclusive + nElapsed;
+
+  LogDebug(' Exit - ThreadIndex=%d AtIdx=%d Block=%p ThreadID=%d Anchor=%p', [nThrIndex, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor]);
 
   Inc(pBlock.pAnchor.nHitCount);
 
@@ -329,5 +329,6 @@ begin
 end;
 
 initialization
+  ZeroMemory(@g_DHProfileStack[0], sizeof(g_DHProfileStack));
   CallibrateTimeStamp;
 end.

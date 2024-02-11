@@ -921,6 +921,7 @@ begin
     end;
 
   // jmp r10 instruction to jump back to the function being called
+  // TODO(psv): R10 can be overritten before the jump, need an alternative
   if nRelBufSize >= 3 then
     begin
       pRelBuffer[0] := $41;

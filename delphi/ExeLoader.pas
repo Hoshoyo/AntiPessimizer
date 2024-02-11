@@ -1,5 +1,7 @@
 unit ExeLoader;
 
+{$DEFINE DEBUG_STACK_PRINT}
+
 interface
 uses
   Udis86,
@@ -200,8 +202,10 @@ begin
   //if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
   //  Exit(0);
 
-  //PrintRegisters(ExceptionInfo);
-  //PrintDebugStack(ExceptionInfo);
+{$IFDEF DEBUG_STACK_PRINT}
+  PrintRegisters(ExceptionInfo);
+  PrintDebugStack(ExceptionInfo);
+{$ENDIF}
 
   HookEpilogueException;
 
