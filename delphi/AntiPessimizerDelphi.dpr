@@ -29,9 +29,31 @@ type
     procedure Execute; override;
   end;
 
-procedure PrintAStatement;
+procedure InternalSleep(nValue : Integer);
+var
+  t : TestClass;
+  nValue2 : Integer;
 begin
-  Writeln('Hello World');
+  nValue2 := 3;
+  Inc(nValue2, nValue);
+  Writeln('InternalSleep');
+  t := TestClass.Create;
+  Sleep(nValue);
+end;
+
+procedure PrintAStatement;
+var
+  t : TestClass;
+  nValue2 : Integer;
+begin
+  Inc(nValue2);
+  Inc(nValue2);
+  Inc(nValue2);
+  Writeln('PrintAStatement');
+  t := TestClass.Create;
+
+  Sleep(100);
+  InternalSleep(200);
 end;
 
 procedure TWorker.Execute;
@@ -92,37 +114,6 @@ asm
 
   sub dword ptr [rel $000fa8c9],$01
   cmp dword ptr [rel $000fa8c2],-$01
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
-  push rax
   //00000000007A3DF0 832DC9A80F0001   sub dword ptr [rel $000fa8c9],$01
   //00000000007A3DF7 833DC2A80F00FF   cmp dword ptr [rel $000fa8c2],-$01
   //00000000007A3DFE C3               ret
@@ -248,7 +239,7 @@ begin
 
   try
     //TestAsm;
-    ThirdLevel;
+    //ThirdLevel;
   except
     on E: Exception do
       Writeln('Foo');
@@ -257,7 +248,7 @@ begin
   //CatchException;
   PrintAStatement;
 
- {
+  {
   JustBeSlow;
 
   tc := TestClass.Create;

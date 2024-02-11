@@ -1,6 +1,6 @@
 unit ExeLoader;
 
-{$DEFINE DEBUG_STACK_PRINT}
+//{$DEFINE DEBUG_STACK_PRINT}
 
 interface
 uses
@@ -234,7 +234,7 @@ begin
   pAnchor.nThreadID := -1;
   pAnchor.strName := strName;
 
-  OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s Addr=%p', [pExecBuffer, strName, pProcAddr])));
+  OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s Addr=%p Anchor=%p', [pExecBuffer, strName, pProcAddr, pAnchor])));
 
   VirtualProtect(Pointer(pExecBuffer), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
@@ -427,6 +427,7 @@ begin
 
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
 
+  try
   if (Item <> nil) and (Item is TJclDebugInfoTD32) then
     begin
       Image := GetBase(Item);
@@ -434,6 +435,10 @@ begin
     end
   else
     Result := nil;
+  except
+    on E: Exception do
+      LogDebug('LoadModuleProcDebugInfoForModule Exception=%s', [E.Message]);
+  end;
 end;
 
 procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
@@ -453,7 +458,7 @@ begin
   if not g_bUdisLoaded then
     Exit;
 
-  OutputDebugString('------------------- Instrumenting procedures ---------------------');
+  LogDebug('------------------- Instrumenting procedures --------------------- %d', [lstProcs.Count]);
 
   Module := GetModuleHandle(nil);
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
@@ -474,16 +479,19 @@ begin
   // After finding it allocate the memory needed
   if (nLowProc <> $FFFFFFFFFFFFFFFF) and (nHighProc <> 0) and (nHighProc > nLowProc) then
     begin
+
       nSize := nHighProc - nLowProc;
       pDhTable := AllocMem(nSize + 2 * sizeof(TProfileAnchor));
-      pDhTable := PByte(pDhTable) + sizeof(TProfileAnchor);
       ZeroMemory(pDhTable, nSize + 2 * sizeof(TProfileAnchor));
+      pDhTable := PByte(pDhTable) + sizeof(TProfileAnchor);
+
       InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
 
       SetLength(g_DHArrProcedures, lstProcs.Count);
       ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
 
       nLastAddr := $7FFFFFFFFFFFFFFF;
+
       for nIndex := lstProcs.Count-1 downto 0 do
         begin
           ipInfo := lstProcs[nIndex];
@@ -494,7 +502,7 @@ begin
             begin
               g_DHArrProcedures[nIndex] := pProcAddr;
 
-              OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + '}'));
+              LogDebug('Instrumenting function %s', [strName]);
               InstrumentFunction(strName, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
             end
           else
