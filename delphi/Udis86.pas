@@ -847,11 +847,25 @@ var
   nNewRelOffset      : Integer;
   nOf                : Integer;
   nOpOffsetFromEnd   : Integer;
+  pR10MovPatchAddr   : PInteger;
 begin
-  if nBufferSize < nByteCountToDisasm then
+  if nBufferSize < (nByteCountToDisasm + 8) then
     begin
       Exit(udErrProcedureTooSmall);
     end;
+
+  // Move the r10 register value to the end of the buffer, this is going to be
+  // the jump target back
+  pRelBuffer[0] := $4C;  // mov [rel $00000006],r10
+  pRelBuffer[1] := $89;
+  pRelBuffer[2] := $15;
+  pR10MovPatchAddr := PInteger(@pRelBuffer[3]);
+  pRelBuffer[3] := $06;
+  pRelBuffer[4] := $00;
+  pRelBuffer[5] := $00;
+  pRelBuffer[6] := $00;
+  pRelBuffer[7] := $90;  // nop
+  Inc(pRelBuffer, 8);
 
   UdInit(@ud);
   UdSetMode(@ud, 64);
@@ -921,14 +935,20 @@ begin
     end;
 
   // jmp r10 instruction to jump back to the function being called
-  // TODO(psv): R10 can be overritten before the jump, need an alternative
-  if nRelBufSize >= 3 then
-    begin
-      pRelBuffer[0] := $41;
-      pRelBuffer[1] := $ff;
-      pRelBuffer[2] := $e2;
-      Dec(nRelBufSize, 3);
-      Inc(pRelBuffer, 3);
+  if nRelBufSize >= (6 + 8) then
+    begin      
+      // jump to the next address indirectly, that is so that code that overrides
+      // the r10 register doesn't override the jump target.
+      // jmp [rel 0]
+      pRelBuffer[0] := $FF;
+      pRelBuffer[1] := $25;
+      pRelBuffer[2] := $0;
+      pRelBuffer[3] := $0;
+      pRelBuffer[4] := $0;
+      pRelBuffer[5] := $0;
+
+      // value of the r10 register before running the function code
+      pR10MovPatchAddr^ := PByte(@pRelBuffer[6]) - PByte(pR10MovPatchAddr) - 4;
     end
   else
     begin

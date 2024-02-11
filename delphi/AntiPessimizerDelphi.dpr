@@ -209,16 +209,45 @@ begin
   arFoo[127] := 32;
 end;
 
+procedure TestAsm;
+asm
+  mov r10, $1234
+  mov qword ptr[rel 6], r10
+  jmp [rel $0]
+@foo:
+  db $60
+  db $3c
+  db $fb
+  db 0
+  db 0
+  db 0
+  db 0
+  db 0
+  //$FB3C60
+  //db $12
+  //db $34
+  //db $56
+  //db $78
+  //db $9A
+  //db $BC
+  //db $DE
+  //db $F0
+end;
+
 procedure TestFunction;
 var
   tc : TestClass;
   tb : TestBase;
   tw1 : TWorker;
   tw2 : TWorker;
+  nOldProtect : DWORD;
 begin
   //RelativeMovTest;
 
+  VirtualProtect(Pointer(@TestAsm), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
+
   try
+    //TestAsm;
     ThirdLevel;
   except
     on E: Exception do
