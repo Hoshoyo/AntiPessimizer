@@ -29,6 +29,10 @@ type
     procedure Execute; override;
   end;
 
+
+var
+  GetThreadDescription : function (handle :THandle; pwName : PWideChar): HRESULT; stdcall;
+
 procedure InternalSleep(nValue : Integer);
 var
   t : TestClass;
@@ -53,14 +57,16 @@ begin
   t := TestClass.Create;
 
   Sleep(100);
-  InternalSleep(200);
+  //InternalSleep(200);
 end;
 
 procedure TWorker.Execute;
 var
   tc : TestClass;
+   DebugName: PWideChar;
 begin
-  NameThreadForDebugging('Profit.' + Self.ClassName);
+  NameThreadForDebugging('Profit.' + Self.ClassName);   // RaiseException($406d1388)
+  
   tc := TestClass.Create;
   while true do
     begin
@@ -248,7 +254,7 @@ begin
   //CatchException;
   PrintAStatement;
 
-  {
+
   JustBeSlow;
 
   tc := TestClass.Create;
@@ -265,10 +271,16 @@ begin
 
   tw1.WaitFor;
   tw2.WaitFor;
-  }
+
 end;
 
+var
+  hKernel : THandle;
 begin
+  hKernel := LoadLibrary('kernel32.dll');
+  if hKernel <> 0 then
+    @GetThreadDescription := GetProcAddress(hKernel, 'GetThreadDescription');
+  
   InstrumentModuleProcs;
 
   TestFunction;

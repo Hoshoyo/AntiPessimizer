@@ -5,7 +5,19 @@
 #include <stdint.h>
 #include <light_array.h>
 
-#if 1
+static void text_label_left(const char* const label, char* buffer, int size, int align)
+{
+    float width = ImGui::CalcItemWidth();
+
+    float x = ImGui::GetCursorPosX();
+    ImGui::Text(label);
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(align);
+    ImGui::SetNextItemWidth(-1);
+
+    ImGui::InputText(label, buffer, size);
+}
+
 void
 gui_selection_window()
 {
@@ -19,35 +31,34 @@ gui_selection_window()
 
     if (ImGui::Begin("Project"))
     {
-        ImGui::Columns(4, 0, false);
         if (ImGui::Button("Browse..."))
         {
             antipessimizer_stop();
         }
-        ImGui::NextColumn();
+        ImGui::SameLine();
         if (ImGui::Button("Load Executable") && file_exists(process_filepath))
         {
             antipessimizer_load_exe(process_filepath);
         }
-        ImGui::NextColumn();
+        ImGui::SameLine();
         if (ImGui::Button("Run") && file_exists(process_filepath))
         {
             antipessimizer_start(process_filepath);
         }
-        ImGui::NextColumn();
-
+        ImGui::SameLine();
         if (ImGui::Button("Result"))
         {
             antipessimizer_request_result();
             rt_results = !rt_results;
         }
+
         //if (rt_results)
         antipessimizer_request_result();
 
-        ImGui::Columns(1);
-        ImGui::InputText("Filepath", process_filepath, sizeof(process_filepath));
-
-        ImGui::InputText("Filter", filter, sizeof(filter));
+        ImGui::Separator();
+        int align_browse = 80.0f;
+        text_label_left("Filepath", process_filepath, sizeof(process_filepath), align_browse);
+        text_label_left("Filter", filter, sizeof(filter), align_browse);
 
         if (ImGui::BeginTable("split1", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
         {
@@ -105,13 +116,13 @@ gui_selection_window()
     }
     ImGui::End();
 }
-#endif
 
 typedef enum {
     RESULT_COL_NAME,
     RESULT_COL_ELAPSED_INCLUSIVE,
     RESULT_COL_ELAPSED_EXCLUSIVE,
     RESULT_COL_HITCOUNT,
+    RESULT_COL_THREAD_ID,
 } Result_ColumnID;
 
 static int sort_algo_direction = 1;
@@ -185,12 +196,13 @@ gui_results()
 
     if (ImGui::Begin("Results Sorted"))
     {
-        if (ImGui::BeginTable("table_sorting", 4, flags))
+        if (ImGui::BeginTable("table_sorting", 5, flags))
         {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_NAME);
             ImGui::TableSetupColumn("Elapsed exclusive", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_ELAPSED_EXCLUSIVE);
             ImGui::TableSetupColumn("Elapsed inclusive", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_ELAPSED_INCLUSIVE);
             ImGui::TableSetupColumn("Hit count", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_HITCOUNT);
+            ImGui::TableSetupColumn("Thread ID", ImGuiTableColumnFlags_NoSort, 0.0f, RESULT_COL_THREAD_ID);
             ImGui::TableSetupScrollFreeze(0, 1); // Make row always visible
             ImGui::TableHeadersRow();
 
@@ -226,6 +238,12 @@ gui_results()
                         ImGui::Text("%.4f", cycles_to_ms(prof->anchors[row_n].elapsed_inclusive, cycles_per_sec));
                         ImGui::TableNextColumn();
                         ImGui::Text("%lld", item->hitcount);
+                        ImGui::TableNextColumn();
+                        String thread_name = antipessimizer_get_thread_name(item->thread_id);
+                        if(thread_name.length > 0)
+                            ImGui::Text("%s", thread_name.data);
+                        else
+                            ImGui::Text("%d", item->thread_id);
                         ImGui::PopID();
                     }
                 }

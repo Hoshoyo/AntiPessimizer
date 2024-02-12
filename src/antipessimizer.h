@@ -4,6 +4,12 @@
 #define EXE_MODULE_SELECTED (1 << 0)
 
 typedef struct {
+    HANDLE handle;
+    DWORD  id;
+    String debug_name;
+} RemoteThread;
+
+typedef struct {
     String name;
     String demangled_name;
     uint32_t offset;
@@ -30,6 +36,7 @@ typedef enum {
 
 typedef struct {
     String   name;
+    uint32_t thread_id;
     uint64_t elapsed_exclusive;
     uint64_t elapsed_inclusive;
     uint64_t hitcount;
@@ -48,3 +55,4 @@ void antipessimizer_request_result();
 void* read_pipe_message();
 int  antipessimizer_stop();
 ProfilingResults* antipessimizer_get_profiling_results();
+String antipessimizer_get_thread_name(uint32_t id);

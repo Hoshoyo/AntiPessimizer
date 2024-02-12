@@ -50,6 +50,7 @@ type
     pbBlocks    : array [0..c_ProfilerStackSize-1] of TDHProfileBlock;
     nAddrOffset : Int64;
     nAtIndex    : Integer;
+    nThreadID   : Cardinal;
   end;
 
   // This record needs to be 32 bytes long
@@ -129,6 +130,7 @@ begin
       nIndex := InterlockedAdd(g_ThreadAllocIndex, 1) - 1;
       g_ThreadTranslateT[nThreadID].nThreadIndex := nIndex;
       pAnchor := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset);
+      g_DHProfileStack[nIndex].nThreadID := nThreadID;
       if nIndex = 0 then
         begin
           pAnchor.nThreadID := nThreadID;
@@ -280,17 +282,19 @@ begin
           if prAnchor.nHitCount > 0 then
             begin
               Writeln(
-                'ThreadID [' + IntToStr(prAnchor.nThreadID) + '] ' +
+                'ThreadID [' + IntToStr(g_DHProfileStack[nThrIdx].nThreadID) + '] ' +
                 'Name=' + PeBorUnmangleName(prAnchor.strName) + #9 +
                 //' Addr ' + Uint64(g_TableProfiler[nIndex][nIndex2].nKey).ToString + #9 +
                 ' Exclusive=' + CyclesToMs(prAnchor.nElapsedExclusive).ToString + ' ms.' +
                 ' w/children=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
                 ' HitCount='  + prAnchor.nHitCount.ToString);
             end;
-          if (nThrIdx >= 1) and ((nThrIdx -1) < Length(pRootAnchor.arNextAnchors)) then
+          if (nThrIdx >= 0) and (Length(pRootAnchor.arNextAnchors) > 0) and (nThrIdx < Length(pRootAnchor.arNextAnchors)) then
             begin
-              prAnchor := @pRootAnchor.arNextAnchors[nThrIdx-1];
-            end;
+              prAnchor := @pRootAnchor.arNextAnchors[nThrIdx];
+            end
+          else
+            Break;
         end;
     end;
   Writeln;
@@ -302,6 +306,8 @@ var
   prAnchor  : PProfileAnchor;
   nStartPos : Integer;
   nCount    : Cardinal;
+  nThrIdx   : Integer;
+  pRootAnchor : PProfileAnchor;
 begin
   nCount := 0;
   nStartPos := stream.Position;
@@ -313,15 +319,25 @@ begin
     begin
       if g_DHArrProcedures[nIndex] = nil then
         continue;
+
       prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack[0].nAddrOffset);
-      if prAnchor.nHitCount > 0 then
+      pRootAnchor := prAnchor;
+      For nThrIdx := 0 to g_ThreadAllocIndex do
         begin
-          Inc(nCount);
-          //writer.Write(PeBorUnmangleName(prAnchor.strName));//
-          writer.Write(prAnchor.strName);
-          writer.Write(prAnchor.nElapsedExclusive);
-          writer.Write(prAnchor.nElapsedInclusive);
-          writer.Write(prAnchor.nHitCount);
+          if prAnchor.nHitCount > 0 then
+            begin
+              Inc(nCount);
+              //writer.Write(PeBorUnmangleName(prAnchor.strName));
+              writer.Write(prAnchor.strName);
+              writer.Write(g_DHProfileStack[nThrIdx].nThreadID);
+              writer.Write(prAnchor.nElapsedExclusive);
+              writer.Write(prAnchor.nElapsedInclusive);
+              writer.Write(prAnchor.nHitCount);
+            end;
+          if (nThrIdx >= 0) and (Length(pRootAnchor.arNextAnchors) > 0) and (nThrIdx < Length(pRootAnchor.arNextAnchors)) then
+            prAnchor := @pRootAnchor.arNextAnchors[nThrIdx]
+          else
+            Break;
         end;
     end;
 

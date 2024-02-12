@@ -22,11 +22,6 @@ extern "C" {
 
 #define MEGABYTE (1024*1024)
 
-struct RemoteThread {
-    HANDLE handle;
-    DWORD id;
-};
-
 struct Antipessimizer {
     bool loaded_necessary_inject_dlls = false;
     bool started = false;
@@ -40,6 +35,7 @@ struct Antipessimizer {
     DWORD64 entry_point = 0;
 
     RemoteThread* suspended_threads;
+    RemoteThread* remote_threads;
 
     HANDLE pipe = 0;
     void* send_buffer = 0;
@@ -126,6 +122,13 @@ antipessimizer_request_result()
     WriteFile(antip.pipe, &dr, sizeof(dr), &written, 0);
 }
 
+typedef struct {
+    uint32_t type; // must be 0x1000
+    char* name;
+    uint32_t thread_id;
+    uint32_t flags;
+} TThreadName;
+
 void
 antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_event)
 {
@@ -136,6 +139,25 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
         case EXCEPTION_DEBUG_EVENT: {
             switch (dbg_event.u.Exception.ExceptionRecord.ExceptionCode)
             {
+            case 0x406d1388: { // Name Thread for debugging                
+                TThreadName* tname = (TThreadName*)dbg_event.u.Exception.ExceptionRecord.ExceptionInformation;
+                char bytes[128] = { 0 };
+                SIZE_T read_bytes = 0;
+                if (ReadProcessMemory(antip->process_info.hProcess,
+                    tname->name, bytes, sizeof(bytes), &read_bytes))
+                {
+                    bytes[sizeof(bytes)-1] = 0;
+                    for (int i = 0; i < array_length(antip->remote_threads); ++i)
+                    {
+                        if (antip->remote_threads[i].id == dbg_event.dwThreadId)
+                        {
+                            String dbg_name = ustr_new_c(bytes);
+                            antip->remote_threads[i].debug_name = dbg_name;
+                            break;
+                        }
+                    }
+                }
+            } break;
             case EXCEPTION_BREAKPOINT: {
                 CONTEXT thctx = { 0 };
                 thctx.ContextFlags = CONTEXT_ALL;                
@@ -165,9 +187,6 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                 thctx.ContextFlags = CONTEXT_ALL;
                 if (GetThreadContext(antip->process_info.hThread, &thctx))
                 {
-                    if (thctx.Rcx == 0x62) {
-                        int y = 0;
-                    }
                     char bytes[64] = { 0 };
                     SIZE_T read_bytes = 0;
                     if (ReadProcessMemory(antip->process_info.hProcess,
@@ -184,6 +203,9 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
         } break;
         case CREATE_THREAD_DEBUG_EVENT: {
             printf("Created Thread %d\n", dbg_event.dwThreadId);
+            RemoteThread rt = { dbg_event.u.CreateThread.hThread, dbg_event.dwThreadId };
+            array_push(antip->remote_threads, rt);
+
             if (dbg_event.dwThreadId == antip->remote_thread_id)
             {
                 // this is the antipessimizer thread, let it run
@@ -194,14 +216,16 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
             }
             else if (!antip->started)
             {
-                // this is any other thread, just suspend until antipessimizer is ready
-                RemoteThread rt = { dbg_event.u.CreateThread.hThread, dbg_event.dwThreadId };
+                // this is any other thread, just suspend until antipessimizer is ready                
                 array_push(antip->suspended_threads, rt);
                 SuspendThread(dbg_event.u.CreateThread.hThread);
             }
         } break;
         case CREATE_PROCESS_DEBUG_EVENT: {
             printf("Created process base %p Thread %d\n", dbg_event.u.CreateProcessInfo.lpBaseOfImage, dbg_event.dwThreadId);
+
+            RemoteThread rt = { dbg_event.u.CreateProcessInfo.hThread, dbg_event.dwThreadId };
+            array_push(antip->remote_threads, rt);
 
             SuspendThread(dbg_event.u.CreateProcessInfo.hThread);
             antip->entry_point = (DWORD64)dbg_event.u.CreateProcessInfo.lpStartAddress;
@@ -324,6 +348,7 @@ antipessimizer_debug_thread(LPVOID param)
         0, 0, &antip.startup_info, &antip.process_info);
 
     antip.suspended_threads = array_new(RemoteThread);
+    antip.remote_threads = array_new(RemoteThread);
 
     while (true)
     {
@@ -397,14 +422,13 @@ read_7bit_encoded_int(unsigned char** data)
     return result;
 }
 
-static uint8_t buffer[1024 * 1024];
 extern Table g_module_table = {};
 
 int
 antipessimizer_start(const char* filepath)
 {
     if (antip.send_buffer == 0)
-        antip.send_buffer = calloc(64, 1024 * 1024);
+        antip.send_buffer = calloc(64, MEGABYTE);
 
     char* at = (char*)antip.send_buffer;
     uint32_t* size = (uint32_t*)at;
@@ -423,25 +447,7 @@ antipessimizer_start(const char* filepath)
                 for (int k = array_length(em->procedures) - 1; k >= 0; --k)
                 {
                     InstrumentedProcedure* ip = em->procedures + k;
-
-#if 0
-                    if (
-                        string_equal_char((char*)"_ZN14Pagedataserieu14TPageDataSerie9EditBatchEPS0_ii", ip->name) 
-                        //|| string_equal_char((char*)"_ZN14Pagedataserieu14TPageDataSerie11ReleasePageEPN6System11StaticArrayIhLi32768EEE", ip->name)
-                        )
-                    {
-                        //array_remove(em->procedures, k);
-                        array_push(instrumented, em->procedures[k]);
-                    }
-                    else
-                        array_remove(em->procedures, k);
-#else
-                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name) 
-                        //&& string_has_prefix_char((char*)"Custommdiformu", ip->demangled_name)
-                        //&& string_has_prefix_char((char*)"Pagedataserieu.TPageDataSerie", ip->demangled_name)
-                        //&& (string_has_prefix_char((char*)"_ZN14Custommdiformu16CreateFormByTypeEN17Profitcharttypesu9MDITypeIDEbbbN11Tdataformat14TFormStyleTypeE", ip->name)
-                        //|| string_has_prefix_char((char*)"_ZN14Custommdiformu26LoadChildFormFromMemStreamEPN6System7Classes13TMemoryStreamERKNS_20TSerializedCustomMDIEib", ip->name))
-                        )
+                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name))
                     {
                         array_push(instrumented, em->procedures[k]);
                     }
@@ -449,7 +455,6 @@ antipessimizer_start(const char* filepath)
                     {
                         array_remove(em->procedures, k);
                     }
-#endif
                 }
             }            
         }
@@ -560,6 +565,8 @@ process_profiling_result(uint8_t* msg, int size)
             anchor.name = ustr_new_len_c((char*)at, value);
             at += value;
 
+            anchor.thread_id = *(uint32_t*)at;
+            at += sizeof(uint32_t);
             anchor.elapsed_exclusive = *(uint64_t*)at;
             at += sizeof(uint64_t);
             anchor.elapsed_inclusive = *(uint64_t*)at;
@@ -572,6 +579,19 @@ process_profiling_result(uint8_t* msg, int size)
 
         read_bytes -= (at - start);
     }
+}
+
+String
+antipessimizer_get_thread_name(uint32_t id)
+{
+    for (int i = 0; i < array_length(antip.remote_threads); ++i)
+    {
+        if (antip.remote_threads[i].id == id)
+        {
+            return antip.remote_threads[i].debug_name;
+        }
+    }
+    return {};
 }
 
 void*
@@ -597,6 +617,10 @@ read_pipe_message()
             ReadFile(antip.pipe, at, size_to_read, &read_bytes, 0);
             size_to_read -= read_bytes;
             at += read_bytes;
+
+            // TODO(psv): This is not right
+            if (read_bytes == 0)
+                break;
         }
 
         uint32_t type = *(uint32_t*)buffer;
