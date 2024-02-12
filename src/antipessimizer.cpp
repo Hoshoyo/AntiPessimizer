@@ -165,12 +165,15 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                 thctx.ContextFlags = CONTEXT_ALL;
                 if (GetThreadContext(antip->process_info.hThread, &thctx))
                 {
+                    if (thctx.Rcx == 0x62) {
+                        int y = 0;
+                    }
                     char bytes[64] = { 0 };
                     SIZE_T read_bytes = 0;
                     if (ReadProcessMemory(antip->process_info.hProcess,
                         dbg_event.u.Exception.ExceptionRecord.ExceptionAddress, bytes, sizeof(bytes), &read_bytes))
                     {
-                        int x = 0;
+                        int x = 0;                        
                     }
                 }
             } break;
@@ -434,8 +437,10 @@ antipessimizer_start(const char* filepath)
                         array_remove(em->procedures, k);
 #else
                     if (!string_has_prefix_char((char*)"System.", ip->demangled_name) 
-                        //&& string_has_prefix_char((char*)"Languageeditorformu", ip->demangled_name)
+                        //&& string_has_prefix_char((char*)"Custommdiformu", ip->demangled_name)
                         //&& string_has_prefix_char((char*)"Pagedataserieu.TPageDataSerie", ip->demangled_name)
+                        //&& (string_has_prefix_char((char*)"_ZN14Custommdiformu16CreateFormByTypeEN17Profitcharttypesu9MDITypeIDEbbbN11Tdataformat14TFormStyleTypeE", ip->name)
+                        //|| string_has_prefix_char((char*)"_ZN14Custommdiformu26LoadChildFormFromMemStreamEPN6System7Classes13TMemoryStreamERKNS_20TSerializedCustomMDIEib", ip->name))
                         )
                     {
                         array_push(instrumented, em->procedures[k]);
@@ -445,22 +450,11 @@ antipessimizer_start(const char* filepath)
                         array_remove(em->procedures, k);
                     }
 #endif
-#if 0
-                    else if (
-                        !string_has_prefix_char((char*)"_ZN3Vcl5Forms11TCustomFormD0Ev", ip->name) &&
-                        !string_has_prefix_char((char*)"_ZN3Vcl5Forms11TCustomFormC3EPN6System7Classes10TComponentE", ip->name) &&                        
-                        !string_has_prefix_char((char*)"_ZN3Vcl5Forms11TCustomForm10SetVisibleEb", ip->name)
-                            )
-                    {
-                        array_remove(em->procedures, k);
-                    }
-#endif
                 }
             }            
         }
 
         int proc_count = array_length(instrumented);
-        //proc_count = 31;
 
         *(int*)at = proc_count;
         at += sizeof(int);

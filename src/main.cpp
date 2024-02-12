@@ -9,10 +9,9 @@
 
 extern "C" {
 #include "string_utils.h"
-#include <light_array.h>
 }
 
-#include "antipessimizer.h"
+#include "gui.h"
 
 // Data
 static ID3D11Device*            g_pd3dDevice = 0;
@@ -27,169 +26,6 @@ void CleanupDeviceD3D();
 void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-static double
-cycles_to_ms(uint64_t cycles, uint64_t cycles_per_second)
-{
-    return ((double)cycles / (double)cycles_per_second) * 1000.0;
-}
-
-static void 
-RenderResults()
-{
-    ProfilingResults* prof = antipessimizer_get_profiling_results();
-    if (ImGui::Begin("Results"))
-    {
-#if 0
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        {
-            ImVec2 p0 = ImGui::GetCursorScreenPos();
-            draw_list->AddRectFilled(ImVec2(p0.x,p0.y), ImVec2(p0.x + 100, p0.y + 100), IM_COL32(0xff, 0xaa, 0xaa, 0xaa));
-        }
-#endif
-        if (ImGui::BeginTable("table_results", 4, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
-        {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("Procedure");
-            ImGui::TableNextColumn();
-            ImGui::Text("Exclusive");
-            ImGui::TableNextColumn();
-            ImGui::Text("With children");
-            ImGui::TableNextColumn();
-            ImGui::Text("Hit count");
-
-            if (prof->anchors)
-            {
-                uint64_t cycles_per_sec = prof->cycles_per_second;
-                for (int i = 0; i < array_length(prof->anchors); ++i)
-                {
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%.*s", prof->anchors[i].name.length, prof->anchors[i].name.data);
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%.4f ms", cycles_to_ms(prof->anchors[i].elapsed_exclusive, cycles_per_sec));
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%.4f ms", cycles_to_ms(prof->anchors[i].elapsed_inclusive, cycles_per_sec));
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%lld", prof->anchors[i].hitcount);
-                }
-            }
-
-            ImGui::EndTable();
-        }
-
-        ImGui::End();
-    }
-}
-
-BOOL file_exists(char* szPath)
-{
-    DWORD dwAttrib = GetFileAttributesA(szPath);
-
-    return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
-        !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
-}
-
-static void
-SelectionWindow()
-{
-    read_pipe_message();
-    static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
-    //static char process_filepath[MAX_PATH] = "C:\\Users\\T-GAMER\\Desktop\\temp\\KoTWithTD32\\KoT.PROFIT_64";
-    //static char filter[128] = "LanguageEditorForm";
-    static char filter[128] = "Dummy";
-    static int last_selected = -1;
-    static bool rt_results;
-
-    if (ImGui::Begin("Project"))
-    {
-        ImGui::Columns(4, 0, false);
-        if (ImGui::Button("Browse..."))
-        {
-            antipessimizer_stop();            
-        }
-        ImGui::NextColumn();
-        if (ImGui::Button("Load Executable") && file_exists(process_filepath))
-        {
-            antipessimizer_load_exe(process_filepath);
-        }
-        ImGui::NextColumn();
-        if (ImGui::Button("Run") && file_exists(process_filepath))
-        {
-            antipessimizer_start(process_filepath);
-        }
-        ImGui::NextColumn();
-        
-        if (ImGui::Button("Result"))
-        {
-            antipessimizer_request_result();
-            rt_results = !rt_results;
-        }
-        //if (rt_results)
-            antipessimizer_request_result();
-
-        ImGui::Columns(1);
-        ImGui::InputText("Filepath", process_filepath, sizeof(process_filepath));
-
-        ImGui::InputText("Filter", filter, sizeof(filter));
-
-        if (ImGui::BeginTable("split1", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
-        {
-            if (g_module_table.modules)
-            {
-                for (int i = 0; i < array_length(g_module_table.modules); ++i)
-                {
-                    ExeModule* em = g_module_table.modules + i;
-
-                    if (!strstr(em->name.data, filter))
-                    {
-                        continue;
-                    }
-
-                    bool selected = em->flags & EXE_MODULE_SELECTED;
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    if (ImGui::Selectable(em->name.data, &selected, ImGuiSelectableFlags_SpanAllColumns))
-                        last_selected = i;
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%d", em->proc_count);
-
-                    if (selected)
-                        em->flags |= EXE_MODULE_SELECTED;
-                    else
-                        em->flags &= ~(EXE_MODULE_SELECTED);
-                }
-            }
-            ImGui::EndTable();
-        }
-        ImGui::End();
-    }
-
-    if (ImGui::Begin("Procedures"))
-    {     
-        if (ImGui::BeginTable("split1", 1, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
-        {
-            if (g_module_table.modules != 0 && last_selected >= 0 && last_selected < array_length(g_module_table.modules))
-            {
-                ExeModule* em = g_module_table.modules + last_selected;
-                InstrumentedProcedure* procs = em->procedures;
-                if (procs)
-                {
-                    for (int i = 0; i < array_length(procs); ++i)
-                    {
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn();
-                        ImGui::Text("%s", procs[i].demangled_name.data);
-                        //ImGui::Text("%s (%x:%x)", procs[i].name.data, procs[i].offset, procs[i].size);
-                    }
-                }
-            }
-            ImGui::EndTable();
-        }
-        ImGui::End();
-    }
-}
 
 int main(int, char**)
 {
@@ -211,23 +47,7 @@ int main(int, char**)
     ShowWindow(hwnd, SW_SHOWDEFAULT);
     UpdateWindow(hwnd);
 
-    // Setup Dear ImGui context
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
-
-    ImGui::StyleColorsDark();
-
-    // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular ones.
-    ImGuiStyle& style = ImGui::GetStyle();
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-    {
-        style.WindowRounding = 0.0f;
-        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-    }
+    gui_init();
 
     // Setup Platform/Renderer backends
     ImGui_ImplWin32_Init(hwnd);
@@ -265,22 +85,16 @@ int main(int, char**)
         // Start the Dear ImGui frame
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
 
-        // Application rendering
-        {
-            ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
-            RenderResults();
-            SelectionWindow();
-        }
+        gui_render();
 
-        // Rendering
-        ImGui::Render();
+        // Rendering        
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
         g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
+        ImGuiIO& io = ImGui::GetIO();
         // Update and Render additional Platform Windows
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {
