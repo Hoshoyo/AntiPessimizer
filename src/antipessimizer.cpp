@@ -26,6 +26,8 @@ struct Antipessimizer {
     bool loaded_necessary_inject_dlls = false;
     bool started = false;
     bool running = false;
+    bool debugging = false;
+    bool should_clear = false;
 
     HANDLE debugged_thread;
     STARTUPINFOA startup_info = { 0 };
@@ -305,7 +307,7 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
         } break;
         case EXIT_PROCESS_DEBUG_EVENT: {
             printf("Process terminated with exit code %x\n", dbg_event.u.ExitProcess.dwExitCode);
-            //ExitProcess(0);
+            antip->debugging = false;
         } break;
         case RIP_EVENT:
             printf("dbg_event %d\n", dbg_event.dwDebugEventCode);
@@ -337,8 +339,6 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
         dwContinueStatus);
 }
 
-static bool debugging = true;
-
 static DWORD WINAPI 
 antipessimizer_debug_thread(LPVOID param)
 {
@@ -361,14 +361,14 @@ antipessimizer_debug_thread(LPVOID param)
             antipessimizer_process_next_debug_event(&antip, dbg_event);
         }
 
-        if (!debugging)
+        if (!antip.debugging)
         {
-            DebugActiveProcessStop(antip.process_info.dwProcessId);
             break;
         }
     }
 
-    //TerminateProcess(antip.process_info.hProcess, 0);
+    antipessimizer_stop();
+
     return 0;
 }
 
@@ -379,6 +379,7 @@ antipessimizer_load_exe(const char* filepath)
         64 * MEGABYTE, 64 * MEGABYTE, 0, 0);
     if (antip.pipe == INVALID_HANDLE_VALUE)
         return -1;
+    antip.debugging = true;
     antip.debugged_thread = CreateThread(0, 0, antipessimizer_debug_thread, (LPVOID)filepath, 0, &antip.dbg_thread_id);
     if (antip.debugged_thread == INVALID_HANDLE_VALUE)
         return -1;
@@ -388,8 +389,52 @@ antipessimizer_load_exe(const char* filepath)
 int
 antipessimizer_stop()
 {
-    debugging = false;
+    TerminateProcess(antip.process_info.hProcess, 0);
+
+    antip.loaded_necessary_inject_dlls = false;
+    antip.started = false;
+    antip.running = false;
+    antip.debugging = false;
+
+    array_clear(antip.remote_threads);
+    array_clear(antip.suspended_threads);
+
+    // Delete pipe?
+    antip.remote_thread_id = 0;
+    antip.loadlibaddr = 0;
+    antip.sleeplibaddr = 0;
+
+    antip.dbg_thread_id = 0;
+
+    antip.should_clear = true;
+
     return 0;
+}
+
+void
+antipessimizer_clear()
+{
+    if (antip.should_clear)
+    {
+        antip.should_clear = false;
+
+        if (antip.module_table.modules)
+        {
+            for (int i = 0; i < array_length(antip.module_table.modules); ++i)
+            {
+                if (antip.module_table.modules[i].procedures)
+                    array_free(antip.module_table.modules[i].procedures);
+            }
+            array_clear(antip.module_table.modules);
+        }
+    }
+}
+
+void
+antipessimizer_clear_anchors()
+{
+    if (antip.prof_results.anchors)
+        array_clear(antip.prof_results.anchors);
 }
 
 int
@@ -493,6 +538,21 @@ antipessimizer_start(const char* filepath)
     return 0;
 }
 
+static int
+compare_modules(const void* left, const void* right)
+{
+    ExeModule* l = (ExeModule*)left;
+    ExeModule* r = (ExeModule*)right;
+
+    return strcmp(l->name.data, r->name.data);
+}
+
+static void
+sort_modules(ExeModule* modules)
+{
+    qsort(modules, array_length(modules), sizeof(*modules), compare_modules);
+}
+
 void
 process_modules_message(uint8_t* msg, int size)
 {
@@ -537,11 +597,19 @@ process_modules_message(uint8_t* msg, int size)
 
         read_bytes -= (at - start);
     }
+
+    sort_modules(antip.module_table.modules);
 }
 
 void
 process_profiling_result(uint8_t* msg, int size)
 {
+#if 0
+    // Don't accept results after the process has terminated
+    if (antip.debugging == false)
+        return;
+#endif
+
     if (antip.prof_results.anchors == 0)
     {
         antip.prof_results.anchors = array_new(ProfileAnchor);
@@ -600,6 +668,8 @@ antipessimizer_get_thread_name(uint32_t id)
 void*
 antipessimizer_read_pipe_message()
 {
+    antipessimizer_clear();
+
     DWORD read_bytes = 0;    
     uint32_t size_to_read = 0;
     uint32_t msg_size = 0;

@@ -53,6 +53,8 @@ int   antipessimizer_load_exe(const char* filepath);
 void  antipessimizer_request_result();
 void* antipessimizer_read_pipe_message();
 int   antipessimizer_stop();
+void  antipessimizer_clear();
+void  antipessimizer_clear_anchors();
 ProfilingResults* antipessimizer_get_profiling_results();
 String antipessimizer_get_thread_name(uint32_t id);
 ModuleTable* antipessimizer_get_module_table();

@@ -8,14 +8,10 @@
 
 static void text_label_left(const char* const label, char* buffer, int size, int align)
 {
-    float width = ImGui::CalcItemWidth();
-
-    float x = ImGui::GetCursorPosX();
     ImGui::Text(label);
     ImGui::SameLine();
     ImGui::SetCursorPosX(align);
     ImGui::SetNextItemWidth(-1);
-
     ImGui::InputText(label, buffer, size);
 }
 
@@ -38,6 +34,9 @@ gui_selection_window(Gui_State* gui)
         ImGui::SameLine();
         if (ImGui::Button("Run") && file_exists(gui->process_filepath))
         {
+            // When running again, clear the old results
+            // TODO(psv): Save results before clearing
+            antipessimizer_clear_anchors();
             antipessimizer_start(gui->process_filepath);
             gui->realtime_results = true;
         }
