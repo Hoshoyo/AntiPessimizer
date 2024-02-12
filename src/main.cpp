@@ -12,6 +12,7 @@ extern "C" {
 }
 
 #include "gui.h"
+#include "antipessimizer.h"
 
 // Data
 static ID3D11Device*            g_pd3dDevice = 0;
@@ -47,7 +48,10 @@ int main(int, char**)
     ShowWindow(hwnd, SW_SHOWDEFAULT);
     UpdateWindow(hwnd);
 
-    gui_init();
+    Gui_State gui = {};
+
+    antipessimizer_init();
+    gui_init(&gui);
 
     // Setup Platform/Renderer backends
     ImGui_ImplWin32_Init(hwnd);
@@ -86,7 +90,8 @@ int main(int, char**)
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
 
-        gui_render();
+        antipessimizer_read_pipe_message();
+        gui_render(&gui);
 
         // Rendering        
         const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };

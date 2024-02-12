@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include "gui.h"
 #include "antipessimizer.h"
 
@@ -19,56 +20,46 @@ static void text_label_left(const char* const label, char* buffer, int size, int
 }
 
 void
-gui_selection_window()
+gui_selection_window(Gui_State* gui)
 {
-    read_pipe_message();
-    //static char process_filepath[MAX_PATH] = "C:\\dev\\delphi\\GdiExample\\Win64\\Debug\\GdiExample.exe";
-    static char process_filepath[MAX_PATH] = "C:\\Users\\T-GAMER\\Desktop\\temp\\KoTWithTD32\\KoT.PROFIT_64";
-    //static char filter[128] = "LanguageEditorForm";
-    static char filter[128] = "";
-    static int last_selected = -1;
-    static bool rt_results;
+    ModuleTable* modtable = antipessimizer_get_module_table();
 
     if (ImGui::Begin("Project"))
     {
         if (ImGui::Button("Browse..."))
         {
-            antipessimizer_stop();
+            os_browse_file(gui->process_filepath, sizeof(gui->process_filepath));
+        }        
+        ImGui::SameLine();
+        if (ImGui::Button("Load Executable") && file_exists(gui->process_filepath))
+        {
+            antipessimizer_load_exe(gui->process_filepath);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Load Executable") && file_exists(process_filepath))
+        if (ImGui::Button("Run") && file_exists(gui->process_filepath))
         {
-            antipessimizer_load_exe(process_filepath);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Run") && file_exists(process_filepath))
-        {
-            antipessimizer_start(process_filepath);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Result"))
-        {
-            antipessimizer_request_result();
-            rt_results = !rt_results;
+            antipessimizer_start(gui->process_filepath);
+            gui->realtime_results = true;
         }
 
-        //if (rt_results)
-        antipessimizer_request_result();
+        if (gui->realtime_results)
+            antipessimizer_request_result();
 
         ImGui::Separator();
+
         int align_browse = 80.0f;
-        text_label_left("Filepath", process_filepath, sizeof(process_filepath), align_browse);
-        text_label_left("Filter", filter, sizeof(filter), align_browse);
+        text_label_left("Filepath", gui->process_filepath, sizeof(gui->process_filepath), align_browse);
+        text_label_left("Filter", gui->unit_filter, sizeof(gui->unit_filter), align_browse);
 
         if (ImGui::BeginTable("split1", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
         {
-            if (g_module_table.modules)
+            if (modtable)
             {
-                for (int i = 0; i < array_length(g_module_table.modules); ++i)
+                for (int i = 0; i < array_length(modtable->modules); ++i)
                 {
-                    ExeModule* em = g_module_table.modules + i;
+                    ExeModule* em = modtable->modules + i;
 
-                    if (!strstr(em->name.data, filter))
+                    if (!strstr(em->name.data, gui->unit_filter))
                     {
                         continue;
                     }
@@ -77,7 +68,7 @@ gui_selection_window()
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     if (ImGui::Selectable(em->name.data, &selected, ImGuiSelectableFlags_SpanAllColumns))
-                        last_selected = i;
+                        gui->procedure_last_selected = i;
                     ImGui::TableNextColumn();
                     ImGui::Text("%d", em->proc_count);
 
@@ -96,9 +87,9 @@ gui_selection_window()
     {
         if (ImGui::BeginTable("split1", 1, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
         {
-            if (g_module_table.modules != 0 && last_selected >= 0 && last_selected < array_length(g_module_table.modules))
+            if (modtable && modtable->modules != 0 && gui->procedure_last_selected >= 0 && gui->procedure_last_selected < array_length(modtable->modules))
             {
-                ExeModule* em = g_module_table.modules + last_selected;
+                ExeModule* em = modtable->modules + gui->procedure_last_selected;
                 InstrumentedProcedure* procs = em->procedures;
                 if (procs)
                 {
@@ -184,7 +175,7 @@ static sort_algo_t* sort_algorithms[] = {
 };
 
 void
-gui_results()
+gui_results(Gui_State* gui)
 {
     ProfilingResults* prof = antipessimizer_get_profiling_results();
 
@@ -255,8 +246,13 @@ gui_results()
 }
 
 void
-gui_init()
+gui_init(Gui_State* gui)
 {
+    gui->procedure_last_selected = -1;
+    gui->process_filepath[0] = 0;
+    gui->unit_filter[0] = 0;
+    gui->realtime_results = false;
+
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -278,14 +274,14 @@ gui_init()
 }
 
 void 
-gui_render()
+gui_render(Gui_State* gui)
 {
     ImGui::NewFrame();
     ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 
     {
-        gui_selection_window();
-        gui_results();
+        gui_selection_window(gui);
+        gui_results(gui);
     }
 
     ImGui::Render();

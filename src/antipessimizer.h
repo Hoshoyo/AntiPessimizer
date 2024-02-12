@@ -25,7 +25,7 @@ typedef struct {
 
 typedef struct {
     ExeModule* modules;
-} Table;
+} ModuleTable;
 
 typedef enum {
     ctEnd = 0,
@@ -47,12 +47,12 @@ typedef struct {
     ProfileAnchor* anchors;
 } ProfilingResults;
 
-extern Table g_module_table;
-
-int  antipessimizer_start(const char* filepath);
-int  antipessimizer_load_exe(const char* filepath);
-void antipessimizer_request_result();
-void* read_pipe_message();
-int  antipessimizer_stop();
+void  antipessimizer_init();
+int   antipessimizer_start(const char* filepath);
+int   antipessimizer_load_exe(const char* filepath);
+void  antipessimizer_request_result();
+void* antipessimizer_read_pipe_message();
+int   antipessimizer_stop();
 ProfilingResults* antipessimizer_get_profiling_results();
 String antipessimizer_get_thread_name(uint32_t id);
+ModuleTable* antipessimizer_get_module_table();

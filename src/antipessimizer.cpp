@@ -49,6 +49,8 @@ struct Antipessimizer {
     DWORD dbg_thread_id = 0;
 
     ProfilingResults prof_results;
+
+    ModuleTable module_table;
 };
 
 static Antipessimizer antip;
@@ -422,26 +424,32 @@ read_7bit_encoded_int(unsigned char** data)
     return result;
 }
 
-extern Table g_module_table = {};
+void
+antipessimizer_init()
+{
+    if (antip.module_table.modules == 0)    
+        antip.module_table.modules = array_new(ExeModule);
+    if (antip.send_buffer == 0)
+        antip.send_buffer = calloc(64, MEGABYTE);
+    if (antip.recv_buffer == 0)
+        antip.recv_buffer = arena_create(64 * MEGABYTE);
+}
 
 int
 antipessimizer_start(const char* filepath)
 {
-    if (antip.send_buffer == 0)
-        antip.send_buffer = calloc(64, MEGABYTE);
-
     char* at = (char*)antip.send_buffer;
     uint32_t* size = (uint32_t*)at;
     at += sizeof(uint32_t);
     *(int*)at = ctInstrumetProcedures;
     at += sizeof(int);
 
-    if (g_module_table.modules)
+    if (antip.module_table.modules)
     {
         InstrumentedProcedure* instrumented = array_new(InstrumentedProcedure);
-        for (int i = 0; i < array_length(g_module_table.modules); ++i)
+        for (int i = 0; i < array_length(antip.module_table.modules); ++i)
         {
-            ExeModule* em = g_module_table.modules + i;
+            ExeModule* em = antip.module_table.modules + i;
             if (em->flags & EXE_MODULE_SELECTED && em->procedures)
             {
                 for (int k = array_length(em->procedures) - 1; k >= 0; --k)
@@ -488,11 +496,6 @@ antipessimizer_start(const char* filepath)
 void
 process_modules_message(uint8_t* msg, int size)
 {
-    if (g_module_table.modules == 0)
-    {
-        g_module_table.modules = array_new(ExeModule);
-    }
-
     int read_bytes = size;
     uint8_t* at = msg;
     while (read_bytes > 0)
@@ -530,7 +533,7 @@ process_modules_message(uint8_t* msg, int size)
             array_push(em.procedures, iproc);
         }
 
-        array_push(g_module_table.modules, em);
+        array_push(antip.module_table.modules, em);
 
         read_bytes -= (at - start);
     }
@@ -595,16 +598,11 @@ antipessimizer_get_thread_name(uint32_t id)
 }
 
 void*
-read_pipe_message()
+antipessimizer_read_pipe_message()
 {
     DWORD read_bytes = 0;    
     uint32_t size_to_read = 0;
     uint32_t msg_size = 0;
-
-    if (antip.recv_buffer == 0) 
-    {
-        antip.recv_buffer = arena_create(64 * 1024 * 1024);
-    }
 
     while (ReadFile(antip.pipe, &size_to_read, sizeof(uint32_t), &read_bytes, 0))
     {
@@ -645,4 +643,10 @@ ProfilingResults*
 antipessimizer_get_profiling_results()
 {
     return &antip.prof_results;
+}
+
+ModuleTable* 
+antipessimizer_get_module_table()
+{
+    return &antip.module_table;
 }

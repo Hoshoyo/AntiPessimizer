@@ -11,5 +11,5 @@ typedef struct {
 	bool realtime_results;
 } Gui_State;
 
-void gui_render();
-void gui_init();
+void gui_render(Gui_State* gui);
+void gui_init(Gui_State* gui);
