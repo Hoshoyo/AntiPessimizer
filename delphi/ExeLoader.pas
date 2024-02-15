@@ -129,6 +129,8 @@ end;
 procedure HookJump;
 asm
   .noframe
+  // TODO(psv): Only setup the return address if we were called from a call
+
   mov r11, rax
 
   mov rax, qword ptr[rsp+8]
