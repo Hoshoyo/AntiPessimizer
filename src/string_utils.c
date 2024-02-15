@@ -467,7 +467,7 @@ String unique_string_new_length(Hoht_Table* table, Light_Arena* arena, char* str
 
 	if (len == 0)
 	{
-		result.data = empty_string;
+		result.data = normal_empty_string;
 		return result;
 	}
 
