@@ -43,7 +43,9 @@ unit JclSynch;
 
 interface
 
+{$IFDEF VER360}
 {$UNDEF BORLAND}
+{$ENDIF}
 
 uses
   {$IFDEF UNITVERSIONING}
