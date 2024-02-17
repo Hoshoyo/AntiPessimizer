@@ -6,6 +6,75 @@
 #include <stdint.h>
 #include <light_array.h>
 
+#include <math.h>
+
+#define MILLISECOND (1000000.0f)
+#define SWAP_FLOAT(x, y) { float temp = x; x = y; y = temp; }
+
+// Color manipulation
+typedef struct { 
+    float L; 
+    float a; 
+    float b; 
+} ColorOKLab;
+
+// Functions from https://bottosson.github.io/posts/oklab/
+static ColorOKLab
+linear_srgb_to_oklab(ImVec4 c)
+{
+    float l = 0.4122214708f * c.x + 0.5363325363f * c.y + 0.0514459929f * c.z;
+    float m = 0.2119034982f * c.x + 0.6806995451f * c.y + 0.1073969566f * c.z;
+    float s = 0.0883024619f * c.x + 0.2817188376f * c.y + 0.6299787005f * c.z;
+
+    float l_ = cbrtf(l);
+    float m_ = cbrtf(m);
+    float s_ = cbrtf(s);
+
+    return {
+        0.2104542553f * l_ + 0.7936177850f * m_ - 0.0040720468f * s_,
+        1.9779984951f * l_ - 2.4285922050f * m_ + 0.4505937099f * s_,
+        0.0259040371f * l_ + 0.7827717662f * m_ - 0.8086757660f * s_,
+    };
+}
+
+ImVec4
+oklab_to_linear_srgb(ColorOKLab c)
+{
+    float l_ = c.L + 0.3963377774f * c.a + 0.2158037573f * c.b;
+    float m_ = c.L - 0.1055613458f * c.a - 0.0638541728f * c.b;
+    float s_ = c.L - 0.0894841775f * c.a - 1.2914855480f * c.b;
+
+    float l = l_ * l_ * l_;
+    float m = m_ * m_ * m_;
+    float s = s_ * s_ * s_;
+
+    return {
+        +4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s,
+        -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s,
+        -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s,
+        1.0f
+    };
+}
+
+static float
+lerp(float v0, float v1, float t) {
+    return v0 + t * (v1 - v0);
+}
+
+static ImVec4
+interpolate_color(ImVec4 cl1, ImVec4 cl2, float factor)
+{
+    ColorOKLab labcl1 = linear_srgb_to_oklab(cl1);
+    ColorOKLab labcl2 = linear_srgb_to_oklab(cl2);
+
+    float a = lerp(labcl1.a, labcl2.a, factor);
+    float b = lerp(labcl1.b, labcl2.b, 1 - factor);
+    float L = labcl1.L;
+
+    ColorOKLab resultlab = { L, a, b };
+    return oklab_to_linear_srgb(resultlab);
+}
+
 static void text_label_left(const char* const label, char* buffer, int size, int align)
 {
     ImGui::Text(label);
@@ -202,13 +271,37 @@ gui_results(Gui_State* gui)
 
             if (prof->anchors)
             {
+                ImVec4 low_color = { 0, 1, 0, 1 };
+                ImVec4 high_color = { 1, 0, 0, 1 };
+                ImVec4 color_inclusive = { 0.7f, 0.7f, 0.7f, 1 };
+                ImVec4 color_exclusive = { 0.7f, 0.7f, 0.7f, 1 };
+                float max_inclusive = 0;
+                float min_inclusive = 0;
+                float max_exclusive = 0;
+                float min_exclusive = 0;
+
                 if (sort_specs->SpecsCount > 0)
                 {
                     if (sort_specs->Specs[0].SortDirection == 1)
                         sort_algo_direction = 1;
                     else
                         sort_algo_direction = -1;
-                    qsort(prof->anchors, (size_t)array_length(prof->anchors), sizeof(prof->anchors[0]), sort_algorithms[sort_specs->Specs[0].ColumnUserID]);
+                    qsort(prof->anchors, (size_t)array_length(prof->anchors), sizeof(prof->anchors[0]), sort_algorithms[sort_specs->Specs[0].ColumnUserID]);                    
+
+                    if (array_length(prof->anchors) > 0)
+                    {
+                        max_inclusive = log2f(prof->anchors[0].elapsed_inclusive / MILLISECOND);
+                        min_inclusive = log2f(prof->anchors[array_length(prof->anchors)-1].elapsed_inclusive / MILLISECOND);
+
+                        max_exclusive = log2f(prof->anchors[0].elapsed_exclusive / MILLISECOND);
+                        min_exclusive = log2f(prof->anchors[array_length(prof->anchors) - 1].elapsed_exclusive / MILLISECOND);
+
+                        if (sort_algo_direction == 1)
+                        {
+                            SWAP_FLOAT(max_inclusive, min_inclusive);
+                            SWAP_FLOAT(max_exclusive, min_exclusive);
+                        }
+                    }
                 }
 
                 ImGuiListClipper clipper;
@@ -218,14 +311,27 @@ gui_results(Gui_State* gui)
                     for (int row_n = clipper.DisplayStart; row_n < clipper.DisplayEnd; row_n++)
                     {
                         ProfileAnchor* item = &prof->anchors[row_n];
+                        if (max_inclusive > 0)
+                        {
+                            float elapsed_ms = log2f(item->elapsed_inclusive / MILLISECOND);
+                            float factor = (elapsed_ms - min_inclusive) / (max_inclusive - min_inclusive);
+                            color_inclusive = interpolate_color(low_color, high_color, factor);
+                        }
+                        if (max_exclusive > 0)
+                        {
+                            float elapsed_ms = log2f(item->elapsed_exclusive / MILLISECOND);
+                            float factor = (elapsed_ms - min_exclusive) / (max_exclusive - min_exclusive);
+                            color_exclusive = interpolate_color(low_color, high_color, factor);
+                        }
+
                         ImGui::PushID(item->name.data);
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
                         ImGui::Text("%s", item->name.data);
                         ImGui::TableNextColumn();
-                        ImGui::Text("%.4f", cycles_to_ms(prof->anchors[row_n].elapsed_exclusive, cycles_per_sec));
+                        ImGui::TextColored(color_exclusive, "%.4f", cycles_to_ms(prof->anchors[row_n].elapsed_exclusive, cycles_per_sec));
                         ImGui::TableNextColumn();
-                        ImGui::Text("%.4f", cycles_to_ms(prof->anchors[row_n].elapsed_inclusive, cycles_per_sec));
+                        ImGui::TextColored(color_inclusive, "%.4f", cycles_to_ms(prof->anchors[row_n].elapsed_inclusive, cycles_per_sec));
                         ImGui::TableNextColumn();
                         ImGui::Text("%lld", item->hitcount);
                         ImGui::TableNextColumn();
