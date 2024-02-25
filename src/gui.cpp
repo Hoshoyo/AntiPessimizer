@@ -282,19 +282,27 @@ gui_results(Gui_State* gui)
 
                 if (sort_specs->SpecsCount > 0)
                 {
+                    Result_ColumnID uid = (Result_ColumnID)sort_specs->Specs[0].ColumnUserID;
+
                     if (sort_specs->Specs[0].SortDirection == 1)
                         sort_algo_direction = 1;
                     else
                         sort_algo_direction = -1;
-                    qsort(prof->anchors, (size_t)array_length(prof->anchors), sizeof(prof->anchors[0]), sort_algorithms[sort_specs->Specs[0].ColumnUserID]);                    
+                    qsort(prof->anchors, (size_t)array_length(prof->anchors), sizeof(prof->anchors[0]), sort_algorithms[uid]);
 
                     if (array_length(prof->anchors) > 0)
                     {
-                        max_inclusive = log2f(prof->anchors[0].elapsed_inclusive / MILLISECOND);
-                        min_inclusive = log2f(prof->anchors[array_length(prof->anchors)-1].elapsed_inclusive / MILLISECOND);
+                        if (uid == RESULT_COL_ELAPSED_INCLUSIVE)
+                        {
+                            max_inclusive = log2f(prof->anchors[0].elapsed_inclusive / MILLISECOND);
+                            min_inclusive = log2f(prof->anchors[array_length(prof->anchors)-1].elapsed_inclusive / MILLISECOND);
+                        }
 
-                        max_exclusive = log2f(prof->anchors[0].elapsed_exclusive / MILLISECOND);
-                        min_exclusive = log2f(prof->anchors[array_length(prof->anchors) - 1].elapsed_exclusive / MILLISECOND);
+                        if (uid == RESULT_COL_ELAPSED_EXCLUSIVE)
+                        {
+                            max_exclusive = log2f(prof->anchors[0].elapsed_exclusive / MILLISECOND);
+                            min_exclusive = log2f(prof->anchors[array_length(prof->anchors) - 1].elapsed_exclusive / MILLISECOND);
+                        }
 
                         if (sort_algo_direction == 1)
                         {

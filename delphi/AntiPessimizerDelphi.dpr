@@ -45,19 +45,102 @@ begin
   Sleep(nValue);
 end;
 
-procedure PrintAStatement;
+procedure PrintAStatement(nValue2 : Integer);
+var
+  t : TestClass;
+begin
+  while nValue2 < 20 do
+    begin
+      Inc(nValue2);
+      Inc(nValue2);
+      Inc(nValue2);
+      Writeln('PrintAStatement');
+      t := TestClass.Create;
+
+      Sleep(100);
+      //InternalSleep(200);
+    end;
+end;
+
+procedure TestLoop(nCount : Integer);
+asm
+@BeginLoop:
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+  mov rax, 10
+//@BeginLoop // This should be possible
+  dec rax
+  loop @BeginLoop
+end;
+
+procedure BigJumpBack;
 var
   t : TestClass;
   nValue2 : Integer;
 begin
+  nValue2 := 0;
   Inc(nValue2);
   Inc(nValue2);
   Inc(nValue2);
-  Writeln('PrintAStatement');
-  t := TestClass.Create;
-
-  Sleep(100);
-  //InternalSleep(200);
+  Inc(nValue2);
+  Inc(nValue2);
+  Inc(nValue2);
+  while nValue2 < 100 do
+    begin
+      Inc(nValue2);
+      Inc(nValue2);
+      Inc(nValue2);
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Sleep(100);
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+      Writeln('PrintAStatement');
+    end;
 end;
 
 procedure TWorker.Execute;
@@ -252,8 +335,9 @@ begin
   end;
 
   //CatchException;
-  PrintAStatement;
-
+  TestLoop(20);
+  PrintAStatement(10);
+  BigJumpBack;
 
   JustBeSlow;
 
@@ -483,8 +567,8 @@ begin
   
   InstrumentModuleProcs;
 
-  //TestFunction;
-  TestRegisterCaller;
+  TestFunction;
+  //TestRegisterCaller;
   PrintDHProfilerResults;
 end.
 

@@ -766,7 +766,7 @@ type
   end;
   PUdRec = ^UdRec;
 
-  TUdisDisasmError = (udErrNone = 0, udErrProcedureTooSmall, udErrJmpAtStart, udErrExecBufferTooSmallForJumpback, udErrExecBufferTooSmallForPatching, udErrExecBufferNotRelativeNear);
+  TUdisDisasmError = (udErrNone = 0, udErrProcedureTooSmall, udErrJmpAtStart, udErrExecBufferTooSmallForJumpback, udErrExecBufferTooSmallForPatching, udErrExecBufferNotRelativeNear, udErrJumpToBeggining);
 
 type
   TCallBackProc = procedure (ud : PUdRec); stdcall;
@@ -785,6 +785,7 @@ var
   function UdErrorToStr(udErr : TUdisDisasmError): String;
   function UdisDisasmAtLeast(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal): Cardinal;
   function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal; var nBytesDisassembled : Cardinal): TUdisDisasmError;
+  function UdisCheckJumpback(pAt : Pointer; nBufferSize : Cardinal): TUdisDisasmError;
 
 implementation
   uses
@@ -803,6 +804,7 @@ begin
     udErrExecBufferTooSmallForJumpback: Result := 'Buffer too small for jumpback';
     udErrExecBufferTooSmallForPatching: Result := 'Buffer too small for patching';
     udErrExecBufferNotRelativeNear:     Result := 'Buffer is not allocated near relative jump';
+    udErrJumpToBeggining:               Result := 'Jump to the beggining';
   else
     Result := 'Unknown';
   end;
@@ -823,6 +825,61 @@ begin
       nBytesDisassembled := nBytesDisassembled + UdDisassemble(@ud);
     end;
   Result := nBytesDisassembled;
+end;
+
+function UdisCheckJumpback(pAt : Pointer; nBufferSize : Cardinal): TUdisDisasmError;
+var
+  ud : UdRec;
+  nBytesDisassembled : Cardinal;
+  nInstrSize : Cardinal;
+  nOperand : Cardinal;
+  nOffset8 : ShortInt;
+  nOffset32 : Integer;
+begin
+  UdInit(@ud);
+  UdSetMode(@ud, 64);
+  UdSetInputBuffer(@ud, pAt, nBufferSize);
+
+  Result := udErrNone;
+
+  nBytesDisassembled := 0;
+  while (nBytesDisassembled < nBufferSize) do
+    begin
+      nInstrSize := UdDisassemble(@ud);
+      nBytesDisassembled := nBytesDisassembled + nInstrSize;
+
+      case ud.mnemonic of
+        //UD_Ileave,
+        //UD_Icall,
+        //UD_Iiretw, UD_Iiretd, UD_Iiretq,
+        UD_Iloopne, UD_Iloope, UD_Iloop,
+        UD_Ijo, UD_Ijno, UD_Ijb, UD_Ijae,
+        UD_Ijz, UD_Ijnz, UD_Ijbe, UD_Ija, UD_Ijs, UD_Ijns, UD_Ijp, UD_Ijnp,
+        UD_Ijl, UD_Ijge, UD_Ijle, UD_Ijg, UD_Ijcxz, UD_Ijecxz, UD_Ijrcxz, UD_Ijmp:
+          begin
+            // Check jump
+            for nOperand := 0 to High(ud.udOperand) do
+              begin
+                if ud.udOperand[nOperand].nType = UD_OP_JIMM then
+                  begin
+                    case ud.udOperand[nOperand].nSize of
+                      8:  begin
+                            nOffset8 := ShortInt(ud.udOperand[nOperand].lVal);
+                            if (nBytesDisassembled + nOffset8) < 0 then
+                              Exit(udErrJumpToBeggining);
+                          end;
+                      32: begin
+                            nOffset32 := Integer(ud.udOperand[nOperand].lVal);
+                            if (nBytesDisassembled + nOffset32) < 0 then
+                              Exit(udErrJumpToBeggining);
+                          end;
+                    end;
+                  end;
+              end;
+          end;
+      else
+      end;
+    end;
 end;
 
 function UdisDisasmAtLeastAndPatchRelatives(pAt : Pointer; nBufferSize : Cardinal; nByteCountToDisasm : Cardinal; pRelBuffer : PByte; nRelBufSize : Cardinal; var nBytesDisassembled : Cardinal): TUdisDisasmError;

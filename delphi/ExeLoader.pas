@@ -245,6 +245,13 @@ begin
     begin
       if (nToSave >= 15) and (nToSave <= Cardinal(Length(pExecBuffer^))) then
         begin
+          udErr := UdisCheckJumpback(PByte(pProcAddr) + nToSave, nSize - nToSave);
+          if udErr <> udErrNone then
+            begin
+              LogDebug('Could not instrument function %s, reason: %s', [strName, UdErrorToStr(udErr)]);
+              Exit;
+            end;
+
           VirtualProtect(Pointer(pProcAddr), nSize, PAGE_EXECUTE_READWRITE, nOldProtect);
           // 15 bytes in total
           // mov rax imm64
@@ -341,8 +348,8 @@ begin
                 end;
             end;
           Result.AddOrSetValue(strName, lstProcs);
-          
-          Writeln(Format('SourceModule %s has %d procedures.', [strName, lstProcs.Count]));
+
+          //Writeln(Format('SourceModule %s has %d procedures.', [strName, lstProcs.Count]));
         end;
     end;
 end;
