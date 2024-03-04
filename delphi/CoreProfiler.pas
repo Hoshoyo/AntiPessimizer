@@ -67,6 +67,7 @@ type
   function  DHExitProfileBlockException: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
   procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter);
+  procedure PrintLengthOfAnchors;
   function  CyclesToMs(nCycles : Int64): Double;
 
   procedure PrintDHProfilerResults;
@@ -80,6 +81,8 @@ var
 
 implementation
 uses
+  JclDebug,
+  ExeLoader,
   JclPeImage,
   Utils,
   Windows,
@@ -106,7 +109,7 @@ begin
   ZeroMemory(@g_ThreadTranslateT[0], sizeof(g_ThreadTranslateT));
   For nIndex := 0 to Length(g_ThreadTranslateT)-1 do
     g_ThreadTranslateT[nIndex].nThreadIndex := -1;
-  LogDebug('### InitializeDHProfilerTable ###', []);
+  LogDebug('### InitializeDHProfilerTable ### OffsetFromModuleBase=%x', [nOffsetFromModuleBase]);
 end;
 
 // Direct hashed anchored profiler
@@ -309,6 +312,7 @@ var
   nThrIdx   : Integer;
   pRootAnchor : PProfileAnchor;
 begin
+  try
   nCount := 0;
   nStartPos := stream.Position;
   writer.Write(Integer(-1));
@@ -342,6 +346,35 @@ begin
     end;
 
   PCardinal(PByte(stream.Memory) + nStartPos)^ := nCount;
+  except
+    on E: Exception do
+      begin
+        LogDebug('AddrOffset=%x %p %d %p %d %d', [ g_DHProfileStack[0].nAddrOffset, PByte(g_DHArrProcedures[nIndex]), prAnchor.nHitCount, g_DHArrProcedures[nIndex], nThrIdx, Length(pRootAnchor.arNextAnchors)]);
+        LogDebug('Serializing result Exception=%s Anchor=%p Stack=%s', [E.Message, prAnchor, E.StackTrace]);
+      end;
+  end;
+end;
+
+procedure PrintLengthOfAnchors;
+var
+  nIndex    : Integer;
+  prAnchor  : PProfileAnchor;
+  nStartPos : Integer;
+  nCount    : Cardinal;
+  nThrIdx   : Integer;
+  pRootAnchor : PProfileAnchor;
+begin
+  nCount := 0;
+  LogDebug('-------- Procedure Count= %d', [Length(g_DHArrProcedures)]);
+  for nIndex := 0 to Length(g_DHArrProcedures)-1 do
+    begin
+      if g_DHArrProcedures[nIndex] = nil then
+        continue;
+
+      prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack[0].nAddrOffset);
+      pRootAnchor := prAnchor;
+      LogDebug('Anchor=%p Lenght=%d', [g_DHArrProcedures[nIndex], Length(pRootAnchor.arNextAnchors)]);      
+    end;
 end;
 
 initialization

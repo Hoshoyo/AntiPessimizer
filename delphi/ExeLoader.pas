@@ -46,6 +46,7 @@ type
 
   procedure PrintDebugStack(ExceptionInfo : PEXCEPTION_POINTERS);
   procedure PrintRegisters(ExceptionInfo : PEXCEPTION_POINTERS);
+  procedure PrintDebugFullStack;
 
 implementation
 uses
@@ -225,16 +226,15 @@ begin
   Result := PJclPeBorTD32Image(Pointer(NativeInt(obj) + MemberVarOffset))^;
 end;
 
-procedure InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor);
+function InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor): Boolean;
 var
   pExecBuffer : PAnchorBuffer;
   nOldProtect : DWORD;
   nToSave     : Cardinal;
   udErr       : TUdisDisasmError;
 begin
+  Result := False;
   New(pExecBuffer);
-  pAnchor.nThreadID := -1;
-  pAnchor.strName := strName;
 
   OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s Addr=%p Anchor=%p', [pExecBuffer, strName, pProcAddr, pAnchor])));
 
@@ -248,9 +248,14 @@ begin
           udErr := UdisCheckJumpback(PByte(pProcAddr) + nToSave, nSize - nToSave);
           if udErr <> udErrNone then
             begin
-              LogDebug('Could not instrument function %s, reason: %s', [strName, UdErrorToStr(udErr)]);
+              LogDebug('UdisCheckJumpback: Could not instrument function %s, reason: %s', [strName, UdErrorToStr(udErr)]);
               Exit;
             end;
+
+          // These have to be here, since if there is no space, we can't write
+          // this fields in the anchor.
+          pAnchor.nThreadID := -1;
+          pAnchor.strName := strName;
 
           VirtualProtect(Pointer(pProcAddr), nSize, PAGE_EXECUTE_READWRITE, nOldProtect);
           // 15 bytes in total
@@ -262,11 +267,12 @@ begin
           pProcAddr[9] := Byte(nToSave - 15);
           pProcAddr[$A] := $E8;
           PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4));
+          Result := True;
         end;
     end
   else
     begin
-      OutputDebugString(PWideChar('Could not instrument function ' + strName + ', reason=' + UdErrorToStr(udErr)));
+      OutputDebugString(PWideChar('InstrumentFunction: Could not instrument function ' + strName + ', reason=' + UdErrorToStr(udErr)));
       Dispose(pExecBuffer);
     end;
 end;
@@ -280,7 +286,8 @@ var
 begin
   Result := -1;
   nLow   := 0;
-  nHigh  := Image.TD32Scanner.ProcSymbolCount-1;
+  nHigh := Image.TD32Scanner.ProcSymbolCount-1;
+
   while nLow < nHigh do  
     begin
       nMid := (nHigh + nLow) div 2;
@@ -367,9 +374,14 @@ var
   lstProcs     : TList<TJclTD32ProcSymbolInfo>;
   procInfo     : TJclTD32ProcSymbolInfo;
   nProc        : Integer;
+  nTimeStart   : Int64;
+  nElapsed     : Int64;
+  nProcCount   : Int64;
 begin
   Result := TDictionary<String, TList<TJclTD32ProcSymbolInfo>>.Create;
-  
+  nTimeStart := ReadTimeStamp;
+  nProcCount := 0;
+
   if Item is TJclDebugInfoTD32 then
     begin
       Image := GetBase(Item);
@@ -385,21 +397,26 @@ begin
               nSearchEnd   := modInfo.Segment[nSeg].Offset + modInfo.Segment[nSeg].Size;
 
               nStart := ProcBinarySearch(Image, nSearchStart);
+
               if nStart <> -1 then
                 begin
                   for nProc := nStart to Image.TD32Scanner.ProcSymbolCount-1 do
                     begin
                       procInfo := Image.TD32Scanner.ProcSymbols[nProc];
                       if (procInfo.Offset < Cardinal(nSearchEnd)) then
-                        lstProcs.Add(procInfo);
+                        lstProcs.Add(procInfo)
+                      else
+                        Break;
                     end;
                 end;
             end;
+
           Result.AddOrSetValue(strName, lstProcs);
-          
-          //Writeln(Format('Module %s has %d procedures.', [strName, lstProcs.Count]));
+          Inc(nProcCount, lstProcs.Count);
         end;
     end;
+  nElapsed := nElapsed + (ReadTimeStamp - nTimeStart);
+  LogDebug('ClassifyProcByModule elapsed: %f ms ProcedureCount=%d ModuleCount=%d', [CyclesToMs(nElapsed), nProcCount, Image.TD32Scanner.ModuleCount]);
 end;
 
 function CreateDebugInfoWithTD32(const Module : HMODULE): TJclDebugInfoSource;
@@ -486,6 +503,7 @@ begin
     end;
 
   // After finding it allocate the memory needed
+  LogDebug('LowAddr=%x HighAddr=%x', [nLowProc, nHighProc]);
   if (nLowProc <> $FFFFFFFFFFFFFFFF) and (nHighProc <> 0) and (nHighProc > nLowProc) then
     begin
 
@@ -505,18 +523,18 @@ begin
         begin
           ipInfo := lstProcs[nIndex];
           pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + ipInfo.procInfo.Offset + c_nModuleCodeOffset);
-          strName := ipInfo.strName;            
+          strName := ipInfo.strName;
 
           if (nLastAddr - Uint64(pProcAddr)) >= sizeof(TProfileAnchor) then
             begin
               g_DHArrProcedures[nIndex] := pProcAddr;
-
               LogDebug('Instrumenting function %s', [strName]);
-              InstrumentFunction(strName, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
+              if not InstrumentFunction(strName, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
+                g_DHArrProcedures[nIndex] := nil;              
             end
           else
             begin
-              OutputDebugString(PWidechar('Could not instrument function ' + strName + ' too small ' + Uint64(pProcAddr).ToString + ' ' + nLastAddr.ToString));
+              OutputDebugString(PWidechar('Could not instrument function ' + strName + ' too small ' + Uint64(pProcAddr).ToString + ' ' + nLastAddr.ToString));              
             end;
 
           nLastAddr := UInt64(pProcAddr);
@@ -591,7 +609,8 @@ begin
                   g_DHArrProcedures[nIndex] := pProcAddr;
 
                   OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + '}'));
-                  InstrumentFunction(strName, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)));
+                  if not InstrumentFunction(strName, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
+                    g_DHArrProcedures[nIndex] := nil;
                 end
               else
                 begin
@@ -651,6 +670,26 @@ begin
   }
 
   //ExitProcess(1);
+end;
+
+procedure PrintDebugFullStack;
+var
+  lstStack : TJclStackInfoList;
+  lstStrings : TStringList;
+  nIndex : Integer;
+  nStackCount : Word;
+  BackTrace : array [0..63] of Pointer;
+  locInfo : TJclLocationInfo;
+begin
+  //JclLastExceptionStack
+  nStackCount := RtlCaptureStackBackTrace(0, 64, @BackTrace[0], nil);
+  LogDebug('Stack count=%d', [nStackCount]);
+
+  for nIndex := 0 to nStackCount-1 do
+    begin
+      locInfo := GetLocationInfo(BackTrace[nIndex]);
+      LogDebug('%p %s:%d', [BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
+    end;
 end;
 
 function ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;

@@ -92,7 +92,7 @@ begin
       if dicProcsSent.TryGetValue(strProc, ipInfo.procInfo) then
         begin
           lstProcToInstrumentInfo.Add(ipInfo);
-          OutputDebugString(PWidechar('Added procedure ' + ipInfo.strName));
+          //OutputDebugString(PWidechar('Added procedure ' + ipInfo.strName));
         end;
     end;
   lstProcsToInstrument.Free;

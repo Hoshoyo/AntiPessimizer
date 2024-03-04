@@ -118,6 +118,34 @@ gui_selection_window(Gui_State* gui)
         int align_browse = 80.0f;
         text_label_left("Filepath", gui->process_filepath, sizeof(gui->process_filepath), align_browse);
         text_label_left("Filter", gui->unit_filter, sizeof(gui->unit_filter), align_browse);
+        if (modtable)
+        {
+            int64_t modules_selected = 0;
+            int64_t procedure_count = 0;
+            int64_t procedures_selected = 0;
+            for (int i = 0; i < array_length(modtable->modules); ++i)
+            {
+                ExeModule* em = modtable->modules + i;
+                procedure_count += em->proc_count;
+                if (em->flags & EXE_MODULE_SELECTED)
+                {
+                    procedures_selected += em->proc_count;
+                    modules_selected++;
+                }
+            }
+            ImGui::Text("Modules Count:       %lld", array_length(modtable->modules));
+            ImGui::Text("Modules Selected:    %lld", modules_selected);
+            ImGui::Text("Procedures Count:    %lld", procedure_count);
+            ImGui::Text("Procedures Selected: %lld", procedures_selected);
+        }
+
+        bool select_all_filtered = false;
+        bool unselect_all_filtered = false;
+        if (ImGui::Button("Select All Filtered"))
+            select_all_filtered = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Unselect All Filtered"))
+            unselect_all_filtered = true;
 
         if (ImGui::BeginTable("split1", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_Borders))
         {
@@ -128,7 +156,7 @@ gui_selection_window(Gui_State* gui)
                     ExeModule* em = modtable->modules + i;
 
                     if (!strstr(em->name.data, gui->unit_filter))
-                    {
+                    {                        
                         continue;
                     }
 
@@ -139,10 +167,15 @@ gui_selection_window(Gui_State* gui)
                         gui->procedure_last_selected = i;
                     ImGui::TableNextColumn();
                     ImGui::Text("%d", em->proc_count);
-
+                    
                     if (selected)
                         em->flags |= EXE_MODULE_SELECTED;
                     else
+                        em->flags &= ~(EXE_MODULE_SELECTED);
+
+                    if (select_all_filtered)
+                        em->flags |= EXE_MODULE_SELECTED;
+                    if (unselect_all_filtered)
                         em->flags &= ~(EXE_MODULE_SELECTED);
                 }
             }
