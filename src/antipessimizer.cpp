@@ -500,7 +500,8 @@ antipessimizer_start(const char* filepath)
                 for (int k = array_length(em->procedures) - 1; k >= 0; --k)
                 {
                     InstrumentedProcedure* ip = em->procedures + k;
-                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name))
+                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name) && 
+                        !string_has_prefix_char((char*)"Winapi.", ip->demangled_name))
                     {
                         array_push(instrumented, em->procedures[k]);
                     }
@@ -602,7 +603,7 @@ process_modules_message(uint8_t* msg, int size)
 }
 
 void
-process_profiling_result(uint8_t* msg, int size)
+process_profiling_result(uint8_t* msg, int size, bool has_name)
 {
 #if 0
     // Don't accept results after the process has terminated
@@ -632,10 +633,16 @@ process_profiling_result(uint8_t* msg, int size)
         for (uint32_t i = 0; i < count; ++i)
         {
             ProfileAnchor anchor;
-            int value = read_7bit_encoded_int(&at);
-            anchor.name = ustr_new_len_c((char*)at, value);
-            at += value;
 
+            if (has_name)
+            {
+                int value = read_7bit_encoded_int(&at);
+                anchor.name = ustr_new_len_c((char*)at, value);
+                at += value;
+            }
+
+            anchor.address = *(uint64_t*)at;
+            at += sizeof(uint64_t);
             anchor.thread_id = *(uint32_t*)at;
             at += sizeof(uint32_t);
             anchor.elapsed_exclusive = *(uint64_t*)at;
@@ -698,7 +705,10 @@ antipessimizer_read_pipe_message()
                 process_modules_message(buffer + sizeof(type), msg_size - sizeof(type));
             } break;
             case ctProfilingData: {
-                process_profiling_result(buffer + sizeof(type), msg_size - sizeof(type));
+                process_profiling_result(buffer + sizeof(type), msg_size - sizeof(type), true);
+            } break;
+            case ctProfilingDataNoName: {
+                process_profiling_result(buffer + sizeof(type), msg_size - sizeof(type), false);
             } break;
             default: break;
         }

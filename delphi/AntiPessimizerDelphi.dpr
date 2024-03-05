@@ -155,7 +155,6 @@ begin
     begin
       tc.TestProc;
       //Writeln(IntToStr(ThreadID));
-      Sleep(100);
     end;
 end;
 
@@ -206,6 +205,21 @@ asm
   //00000000007A3DF0 832DC9A80F0001   sub dword ptr [rel $000fa8c9],$01
   //00000000007A3DF7 833DC2A80F00FF   cmp dword ptr [rel $000fa8c2],-$01
   //00000000007A3DFE C3               ret
+end;
+
+function CallAtStartTest: Int64;
+asm
+  .noframe
+  sub rsp, $28
+  mov ecx, $5
+  mov edx, $1
+  call JclCheckWinVersion
+  sub dword ptr [rel $000fa8c9],$01
+  sub dword ptr [rel $000fa8c9],$01
+  sub dword ptr [rel $000fa8c9],$01
+  sub dword ptr [rel $000fa8c9],$01
+  sub dword ptr [rel $000fa8c9],$01
+  sub dword ptr [rel $000fa8c9],$01
 end;
 
 function JustBeSlow: Int64;
@@ -334,6 +348,10 @@ begin
       Writeln('Foo');
   end;
 
+  //TestUdis(@CallAtStartTest);
+
+  //CallAtStartTest;
+
   //CatchException;
   TestLoop(20);
   PrintAStatement(10);
@@ -341,15 +359,16 @@ begin
 
   JustBeSlow;
 
-  tc := TestClass.Create;
-  tb := TestBase.Create;
+  //tc := TestClass.Create;
+  //tb := TestBase.Create;
 
   tw1 := TWorker.Create;
   tw2 := TWorker.Create;
 
   while True do
     begin
-      PrintDHProfilerResults;
+      //PrintDHProfilerResults;
+      Writeln('Hello');
       Sleep(1000);
     end;
 

@@ -143,7 +143,7 @@ begin
   Result.ctType := PCommandType(@g_RecvCommandBuffer[0])^;
 end;
 
-procedure ProcessSendResults(pipe : THandle; stream : TMemoryStream; writer : TBinaryWriter);
+procedure ProcessSendResults(pipe : THandle; stream : TMemoryStream; writer : TBinaryWriter; bName : Boolean);
 var
   nWritten : DWORD;
 begin
@@ -153,9 +153,12 @@ begin
   stream.Position := 0;
 
   writer.Write(Integer(-1));
-  writer.Write(Cardinal(ctProfilingData));
+  if bName then
+    writer.Write(Cardinal(ctProfilingData))
+  else
+    writer.Write(Cardinal(ctProfilingDataNoName));
 
-  ProfilerSerializeResults(stream, writer);
+  ProfilerSerializeResults(stream, writer, bName);
 
   PCardinal(stream.Memory)^ := stream.Position - Sizeof(Cardinal);
 
@@ -193,12 +196,15 @@ begin
     case cmd.ctType of
       ctRequestProcedures:   ProcessSendAllModules(pipe, @state);
       ctInstrumetProcedures: ProcessInstrumentationCommand(cmd, @state);
-      ctProfilingData:       ProcessSendResults(pipe, sendstream, sendwriter);
+      ctProfilingData:       ProcessSendResults(pipe, sendstream, sendwriter, True);
+      ctProfilingDataNoName: ProcessSendResults(pipe, sendstream, sendwriter, False);
     end;
   until (cmd.ctType = ctEnd);
   except
     on E: Exception do
-      LogDebug('Exception %s', [E.Message]);
+      begin
+        LogDebug('Worker Exception=%s Stack=%s', [E.Message, E.StackTrace]);
+      end;
   end;
 
   Result := 0;
@@ -208,7 +214,7 @@ procedure DLLHandler(Reason: Integer);
 begin
   if Reason = DLL_PROCESS_DETACH then
     begin
-      ProcessSendResults(pipe, sendstream, sendwriter);
+      ProcessSendResults(pipe, sendstream, sendwriter, True);
     end;
   LogDebug('DLL Event %d', [Reason]);
   if @g_PrevDllProc <> nil then

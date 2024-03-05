@@ -2,10 +2,11 @@ unit CoreProfiler;
 
 interface
 uses
+  SyncObjs,
   Classes;
 
 const
-  c_ProfilerStackSize = 1024*1024;  // 1 MB
+  c_ProfilerStackSize = 1024*128;  // 128kb
 
 type
   TProfileBucket = record
@@ -66,7 +67,7 @@ type
   function  DHExitProfileBlock: Pointer;
   function  DHExitProfileBlockException: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
-  procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter);
+  procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter; bName : Boolean);
   procedure PrintLengthOfAnchors;
   function  CyclesToMs(nCycles : Int64): Double;
 
@@ -78,6 +79,7 @@ var
   g_Pipe : THandle;
   g_ThreadID : Integer = 0;
   g_ThreadTranslateT : array [0..1024*1024-1] of TThrTranslate; // ThreadID translation table (supports 1 million threads)
+  g_CriticalSectionAnchorAllocation : TCriticalSection;
 
 implementation
 uses
@@ -90,7 +92,7 @@ uses
 
 var
   g_DHTableProfiler  : Pointer;           // This table is the hashtable for the anchors, the offsets correspond directly to addresses
-  g_DHProfileStack   : array [0..16] of TDHProfilerStack;  // The memory used as a stack to keep in flight profiling data
+  g_DHProfileStack   : array [0..63] of TDHProfilerStack;  // The memory used as a stack to keep in flight profiling data
 
   g_ThreadAllocIndex : Integer;
   g_nCyclesPerSecond : Int64;
@@ -144,10 +146,11 @@ begin
     begin
       nPrevLen := Length(pAnchor.arNextAnchors);
       // This is not the first thread, allocate the slot at the Thread index
-      if nPrevLen <= nIndex then
+      if nPrevLen < nIndex then
         begin
           // TODO(psv): This is not thread safe at all
           SetLength(pAnchor.arNextAnchors, nIndex);
+          //LogDebug('%s Thread %d setting length %d to anchor %p OldAddr=%p NewAddr=%p', [DateTimeToStr(Now), nThreadID, nIndex, pAnchor, nOldAddr, @pAnchor.arNextAnchors[0]]);
           ZeroMemory(@pAnchor.arNextAnchors[nPrevLen], sizeof(pAnchor.arNextAnchors[0]) * nIndex-nPrevLen);
           pAnchor.arNextAnchors[nIndex-1].strName := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset).strName;
           pAnchor.arNextAnchors[nIndex-1].nThreadID := nThreadID;
@@ -192,26 +195,34 @@ var
 begin
   nElapsed := ReadTimeStamp;
 
-  nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
-  if nThrIndex = -1 then
-    Exit(0);
+  try
+    nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
+    if nThrIndex = -1 then
+      Exit(0);
 
-  nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
-  pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
-  Dec(g_DHProfileStack[nThrIndex].nAtIndex);
+    nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
+    pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
+    Dec(g_DHProfileStack[nThrIndex].nAtIndex);
 
-  nElapsed := nElapsed - pBlock.nStartTime;
+    nElapsed := nElapsed - pBlock.nStartTime;
 
-  if pBlock.pParentAnchor <> nil then
-    pBlock.pParentAnchor.nElapsedExclusive := pBlock.pParentAnchor.nElapsedExclusive - nElapsed;
-  pBlock.pAnchor.nElapsedExclusive := pBlock.pAnchor.nElapsedExclusive + nElapsed;
-  pBlock.pAnchor.nElapsedInclusive := pBlock.nPrevTimeInclusive + nElapsed;
+    if pBlock.pParentAnchor <> nil then
+      pBlock.pParentAnchor.nElapsedExclusive := pBlock.pParentAnchor.nElapsedExclusive - nElapsed;
+    pBlock.pAnchor.nElapsedExclusive := pBlock.pAnchor.nElapsedExclusive + nElapsed;
+    pBlock.pAnchor.nElapsedInclusive := pBlock.nPrevTimeInclusive + nElapsed;
 
-  //LogDebug(' Exit - ThreadIndex=%d AtIdx=%d Block=%p ThreadID=%d Anchor=%p', [nThrIndex, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor]);
+    //LogDebug(' Exit - ThreadIndex=%d AtIdx=%d Block=%p ThreadID=%d Anchor=%p', [nThrIndex, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor]);
 
-  Inc(pBlock.pAnchor.nHitCount);
+    Inc(pBlock.pAnchor.nHitCount);
 
-  Result := pBlock.ptrReturnTarget;
+    Result := pBlock.ptrReturnTarget;
+  except
+    on E: Exception do
+      begin
+        LogDebug('DHExitProfileBlock Exception=%s Stack=%s CurrentThreadID=%d', [E.Message, E.StackTrace, GetCurrentThreadID]);
+        LogDebug(' Exit - ThreadIndex=%d AtIdx=%d Block=%p ThreadID=%d Anchor=%p', [nThrIndex, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor]);
+      end;
+  end;
 end;
 
 function DHExitProfileBlockException: Pointer;
@@ -303,7 +314,7 @@ begin
   Writeln;
 end;
 
-procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter);
+procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter; bName : Boolean);
 var
   nIndex    : Integer;
   prAnchor  : PProfileAnchor;
@@ -325,19 +336,23 @@ begin
         continue;
 
       prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack[0].nAddrOffset);
-      pRootAnchor := prAnchor;
+      pRootAnchor := prAnchor;      
+
       For nThrIdx := 0 to g_ThreadAllocIndex do
         begin
           if prAnchor.nHitCount > 0 then
             begin
               Inc(nCount);
               //writer.Write(PeBorUnmangleName(prAnchor.strName));
-              writer.Write(prAnchor.strName);
+              if bName  then
+                writer.Write(prAnchor.strName);
+
+              writer.Write(Uint64(prAnchor));
               writer.Write(g_DHProfileStack[nThrIdx].nThreadID);
               writer.Write(prAnchor.nElapsedExclusive);
               writer.Write(prAnchor.nElapsedInclusive);
               writer.Write(prAnchor.nHitCount);
-            end;
+            end;          
           if (nThrIdx >= 0) and (Length(pRootAnchor.arNextAnchors) > 0) and (nThrIdx < Length(pRootAnchor.arNextAnchors)) then
             prAnchor := @pRootAnchor.arNextAnchors[nThrIdx]
           else
@@ -349,8 +364,8 @@ begin
   except
     on E: Exception do
       begin
-        LogDebug('AddrOffset=%x %p %d %p %d %d', [ g_DHProfileStack[0].nAddrOffset, PByte(g_DHArrProcedures[nIndex]), prAnchor.nHitCount, g_DHArrProcedures[nIndex], nThrIdx, Length(pRootAnchor.arNextAnchors)]);
         LogDebug('Serializing result Exception=%s Anchor=%p Stack=%s', [E.Message, prAnchor, E.StackTrace]);
+        LogDebug('AddrOffset=%x %p %d %p %d %d', [ g_DHProfileStack[0].nAddrOffset, PByte(g_DHArrProcedures[nIndex]), prAnchor.nHitCount, g_DHArrProcedures[nIndex], nThrIdx, Length(pRootAnchor.arNextAnchors)]);
       end;
   end;
 end;

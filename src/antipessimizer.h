@@ -32,6 +32,7 @@ typedef enum {
     ctRequestProcedures = 1, 
     ctInstrumetProcedures = 2, 
     ctProfilingData = 3,
+    ctProfilingDataNoName = 4,
 } PipeMessage;
 
 typedef struct {
@@ -40,6 +41,7 @@ typedef struct {
     uint64_t elapsed_exclusive;
     uint64_t elapsed_inclusive;
     uint64_t hitcount;
+    uint64_t address;
 } ProfileAnchor;
 
 typedef struct {

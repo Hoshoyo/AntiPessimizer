@@ -1,6 +1,7 @@
 unit ExeLoader;
 
 //{$DEFINE DEBUG_STACK_PRINT}
+//{$DEFINE PRINT_INSTRUMENTATION}
 
 interface
 uses
@@ -27,7 +28,7 @@ type
   PEXCEPTION_POINTERS = ^EXCEPTION_POINTERS;
 
 {$Z4}
-  TCommandType = (ctEnd = 0, ctRequestProcedures = 1, ctInstrumetProcedures = 2, ctProfilingData = 3);
+  TCommandType = (ctEnd = 0, ctRequestProcedures = 1, ctInstrumetProcedures = 2, ctProfilingData = 3, ctProfilingDataNoName = 4);
   PCommandType = ^TCommandType;
 {$Z1}
 
@@ -198,8 +199,10 @@ end;
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 var
   pLastHook : PPointer;
+  pExceptionAddr : PByte;
 begin
-  LogDebug('Exception at %p Thread %d', [ExceptionInfo.ExceptionRecord.ExceptionAddress, GetCurrentThreadID]);
+  pExceptionAddr := ExceptionInfo.ExceptionRecord.ExceptionAddress;
+  LogDebug('Exception at %p Thread %d', [pExceptionAddr, GetCurrentThreadID]);
   
   // TODO(psv): Not handle exceptions that are not from the module address space
   //if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
@@ -209,6 +212,9 @@ begin
   PrintRegisters(ExceptionInfo);
   PrintDebugStack(ExceptionInfo);
 {$ENDIF}
+
+  if (pExceptionAddr >= PByte(@DHExitProfileBlock)) and (pExceptionAddr <= (PByte(@DHExitProfileBlock) + 256)) then
+    Exit(0);
 
   HookEpilogueException;
 
@@ -236,7 +242,9 @@ begin
   Result := False;
   New(pExecBuffer);
 
+{$IFDEF PRINT_INSTRUMENTATION}
   OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s Addr=%p Anchor=%p', [pExecBuffer, strName, pProcAddr, pAnchor])));
+{$ENDIF}
 
   VirtualProtect(Pointer(pExecBuffer), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
@@ -272,7 +280,9 @@ begin
     end
   else
     begin
+    {$IFDEF PRINT_INSTRUMENTATION}
       OutputDebugString(PWideChar('InstrumentFunction: Could not instrument function ' + strName + ', reason=' + UdErrorToStr(udErr)));
+    {$ENDIF}
       Dispose(pExecBuffer);
     end;
 end;
@@ -506,7 +516,6 @@ begin
   LogDebug('LowAddr=%x HighAddr=%x', [nLowProc, nHighProc]);
   if (nLowProc <> $FFFFFFFFFFFFFFFF) and (nHighProc <> 0) and (nHighProc > nLowProc) then
     begin
-
       nSize := nHighProc - nLowProc;
       pDhTable := AllocMem(nSize + 2 * sizeof(TProfileAnchor));
       ZeroMemory(pDhTable, nSize + 2 * sizeof(TProfileAnchor));
@@ -528,7 +537,6 @@ begin
           if (nLastAddr - Uint64(pProcAddr)) >= sizeof(TProfileAnchor) then
             begin
               g_DHArrProcedures[nIndex] := pProcAddr;
-              LogDebug('Instrumenting function %s', [strName]);
               if not InstrumentFunction(strName, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
                 g_DHArrProcedures[nIndex] := nil;              
             end

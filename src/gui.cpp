@@ -368,7 +368,10 @@ gui_results(Gui_State* gui)
                         ImGui::PushID(item->name.data);
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
-                        ImGui::Text("%s", item->name.data);
+                        if(item->name.length > 0)
+                            ImGui::Text("%s", item->name.data);
+                        else
+                            ImGui::Text("0x%llx", item->address);
                         ImGui::TableNextColumn();
                         ImGui::TextColored(color_exclusive, "%.4f", cycles_to_ms(prof->anchors[row_n].elapsed_exclusive, cycles_per_sec));
                         ImGui::TableNextColumn();
