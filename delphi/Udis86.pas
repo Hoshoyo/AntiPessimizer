@@ -1250,7 +1250,7 @@ begin
 
       for nOperand := 0 to High(ud.udOperand) do
         begin
-          if ud.udOperand[nOperand].nBase = UD_R_RIP then
+          if (ud.udOperand[nOperand].nType = UD_OP_MEM) and (ud.udOperand[nOperand].nBase = UD_R_RIP) then
             begin
               if Uint64(pRelBuffer) > $7FFFFFFF then
                 Exit(udErrExecBufferNotRelativeNear);

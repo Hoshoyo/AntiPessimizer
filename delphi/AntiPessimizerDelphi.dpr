@@ -341,6 +341,20 @@ asm
   inc rax
 end;
 
+procedure CondJumpAfterBlock;
+asm
+  sub rsp, $28
+  mov rax, [rel $05f3bde5]
+  cmp byte ptr [rax+$0c], $00
+  jz @NextFoo
+  mov rcx, 33
+@NextFoo:
+  mov rcx, 44
+  mov rdx, 45
+  mov rdx, 55
+  ret
+end;
+
 procedure TestFunction;
 var
   tc : TestClass;
@@ -352,8 +366,10 @@ begin
   //RelativeMovTest;
 
   VirtualProtect(Pointer(@TestAsm), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
+  VirtualProtect(Pointer(@CondJumpAfterBlock), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
   try
+    CondJumpAfterBlock;
     TestAsm;
     //ThirdLevel;
   except

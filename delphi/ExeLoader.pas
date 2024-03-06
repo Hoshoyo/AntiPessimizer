@@ -235,6 +235,8 @@ begin
   Result := PJclPeBorTD32Image(Pointer(NativeInt(obj) + MemberVarOffset))^;
 end;
 
+var
+  g_pMem : Pointer;
 function InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor): Boolean;
 var
   pExecBuffer : PAnchorBuffer;
@@ -244,6 +246,18 @@ var
 begin
   Result := False;
   New(pExecBuffer);
+
+  // Use this to test relative moves within the first 15 bytes,
+  // this guarantees the allocation will be in the first 4GB
+  // of the addressable range.
+  {
+  if g_pMem = nil then
+    begin
+      g_pMem := VirtualAlloc(Pointer($70000000), 1024 * 1024, MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE);
+    end;
+  pExecBuffer := g_pMem;
+  g_pMem := PByte(g_pMem) + sizeof(TAnchorBuffer);
+  }
 
 {$IFDEF PRINT_INSTRUMENTATION}
   OutputDebugString(Pwidechar(Format('Instrumenting Execbuffer=%p Function=%s Addr=%p Anchor=%p', [pExecBuffer, strName, pProcAddr, pAnchor])));
