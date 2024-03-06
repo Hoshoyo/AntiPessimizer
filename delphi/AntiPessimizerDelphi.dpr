@@ -202,6 +202,12 @@ asm
 
   sub dword ptr [rel $000fa8c9],$01
   cmp dword ptr [rel $000fa8c2],-$01
+  cmp dword ptr [rel $000fa8c2],-$01
+  cmp dword ptr [rel $000fa8c2],-$01
+  cmp dword ptr [rel $000fa8c2],-$01
+  cmp dword ptr [rel $000fa8c2],-$01
+  cmp dword ptr [rel $000fa8c2],-$01
+  cmp dword ptr [rel $000fa8c2],-$01
   //00000000007A3DF0 832DC9A80F0001   sub dword ptr [rel $000fa8c9],$01
   //00000000007A3DF7 833DC2A80F00FF   cmp dword ptr [rel $000fa8c2],-$01
   //00000000007A3DFE C3               ret
@@ -326,6 +332,13 @@ asm
   //db $BC
   //db $DE
   //db $F0
+  inc rax
+  inc rax
+  inc rax
+  inc rax
+  inc rax
+  inc rax
+  inc rax
 end;
 
 procedure TestFunction;
@@ -341,7 +354,7 @@ begin
   VirtualProtect(Pointer(@TestAsm), sizeof(TAnchorBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
   try
-    //TestAsm;
+    TestAsm;
     //ThirdLevel;
   except
     on E: Exception do
@@ -375,206 +388,6 @@ begin
   tw1.WaitFor;
   tw2.WaitFor;
 
-end;
-
-var
-  c_Constant : Int64 = $123456789ABCDEF;
-  nJumpBack : Pointer;
-  nPrevRsp : Pointer;
-  c_Rax : Cardinal = 1;
-  c_Rbx : Cardinal = 2;
-  c_Rcx : Cardinal = 4;
-  c_Rdx : Cardinal = 8;
-  c_Rdi : Cardinal = 16;
-  c_Rsi : Cardinal = 32;
-  c_Rsp : Cardinal = 64;
-  c_Rbp : Cardinal = 128;
-  c_R8  : Cardinal = 256;
-  c_R9  : Cardinal = 512;
-  c_R10 : Cardinal = 1024;
-  c_R11 : Cardinal = 2048;
-  c_R12 : Cardinal = 4096;
-  c_R13 : Cardinal = 8192;
-  c_R14 : Cardinal = 16384;
-  c_R15 : Cardinal = 32768;
-
-  g_ErrorFlags : Cardinal = 0;
-
-procedure FailPreserveCheck;
-begin
-  if g_ErrorFlags <> 0 then
-    begin
-      Writeln(Format('Failed to preserve registers %x', [g_ErrorFlags]));
-      if (g_ErrorFlags and c_Rax) <> 0 then
-        Writeln('RAX');        
-      if (g_ErrorFlags and c_Rbx) <> 0 then
-        Writeln('RBX');
-      if (g_ErrorFlags and c_Rcx) <> 0 then
-        Writeln('RCX');
-      if (g_ErrorFlags and c_Rdx) <> 0 then
-        Writeln('RDX');
-      if (g_ErrorFlags and c_Rdi) <> 0 then
-        Writeln('RDI');
-      if (g_ErrorFlags and c_Rsi) <> 0 then
-        Writeln('RSI');
-      if (g_ErrorFlags and c_Rsp) <> 0 then
-        Writeln('RSP');
-      if (g_ErrorFlags and c_Rbp) <> 0 then
-        Writeln('RBP');
-
-      if (g_ErrorFlags and c_R8) <> 0 then
-        Writeln('R8');        
-      if (g_ErrorFlags and c_R9) <> 0 then
-        Writeln('R9');
-      if (g_ErrorFlags and c_R10) <> 0 then
-        Writeln('R10');
-      if (g_ErrorFlags and c_R11) <> 0 then
-        Writeln('R11');
-      if (g_ErrorFlags and c_R12) <> 0 then
-        Writeln('R12');
-      if (g_ErrorFlags and c_R13) <> 0 then
-        Writeln('R13');
-      if (g_ErrorFlags and c_R14) <> 0 then
-        Writeln('R14');
-      if (g_ErrorFlags and c_R15) <> 0 then
-        Writeln('R15');
-    end;
-end;
-
-procedure TestRegisterCallee;
-asm
-  NOP DWORD ptr [EAX + EAX*1]
-  NOP DWORD ptr [EAX + EAX*1]
-  NOP DWORD ptr [EAX + EAX*1]
-  NOP DWORD ptr [EAX + EAX*1]
-  NOP DWORD ptr [EAX + EAX*1]
-
-  cmp rax, c_Constant
-  mov eax, 0
-  cmovne eax, c_Rax
-  or g_ErrorFlags, eax
-
-  cmp rbx, c_Constant
-  cmovne eax, c_Rbx
-  or g_ErrorFlags, eax
-
-  cmp rcx, c_Constant
-  cmovne eax, c_Rcx
-  or g_ErrorFlags, eax
-
-  cmp rdx, c_Constant
-  cmovne eax, c_Rdx
-  or g_ErrorFlags, eax
-
-  cmp rdi, c_Constant
-  cmovne eax, c_Rdi
-  or g_ErrorFlags, eax
-
-  cmp rsi, c_Constant
-  cmovne eax, c_Rsi
-  or g_ErrorFlags, eax
-
-  cmp rsp, c_Constant
-  cmovne eax, c_Rsp
-  or g_ErrorFlags, eax
-
-  cmp rbp, c_Constant
-  cmovne eax, c_Rbp
-  or g_ErrorFlags, eax
-
-  cmp r8, c_Constant
-  cmovne eax, c_R8
-  or g_ErrorFlags, eax
-
-  cmp r9, c_Constant
-  cmovne eax, c_R9
-  or g_ErrorFlags, eax
-
-  cmp r10, c_Constant
-  cmovne eax, c_R10
-  or g_ErrorFlags, eax
-
-  cmp r11, c_Constant
-  cmovne eax, c_R11
-  or g_ErrorFlags, eax
-
-  cmp r12, c_Constant
-  cmovne eax, c_R12
-  or g_ErrorFlags, eax
-
-  cmp r13, c_Constant
-  cmovne eax, c_R13
-  or g_ErrorFlags, eax
-
-  cmp r14, c_Constant
-  cmovne eax, c_R14
-  or g_ErrorFlags, eax
-
-  cmp r15, c_Constant
-  cmovne eax, c_R15
-  or g_ErrorFlags, eax
-
-  // Go back
-  call FailPreserveCheck
-end;
-
-// Callee saved = RBX, RBP, RDI, RSI, RSP, R12, R13, R14, and R15
-procedure TestRegisterCaller;
-asm
-.noframe
-  NOP DWORD ptr [EAX + EAX*1]
-  NOP DWORD ptr [EAX + EAX*1]
-  NOP DWORD ptr [EAX + EAX*1]
-  NOP DWORD ptr [EAX + EAX*1]
-
-  push rbx
-  push rbp
-  push rdi
-  push rsi
-  push rsp
-  push r12
-  push r13
-  push r14
-  push r15
-
-  lea rax, @aftercall
-  mov nJumpBack, rax
-
-  mov nPrevRsp, rsp
-
-  mov rax, c_Constant
-  mov rbx, c_Constant
-  mov rcx, c_Constant
-  mov rdx, c_Constant
-  mov rsi, c_Constant
-  mov rdi, c_Constant
-  mov rbp, c_Constant
-  //mov rsp, c_Constant
-
-  mov r8,  c_Constant
-  mov r9,  c_Constant
-  mov r10, c_Constant
-  mov r11, c_Constant
-  mov r12, c_Constant
-  mov r13, c_Constant
-  mov r14, c_Constant
-  mov r15, c_Constant
-
-  //jmp TestRegisterCallee
-  call TestRegisterCallee
-@aftercall:
-
-  mov rsp, nPrevRsp
-
-  pop r15
-  pop r14
-  pop r13
-  pop r12
-  pop rsp
-  pop rsi
-  pop rdi
-  pop rbp
-  pop rbx
 end;
 
 var

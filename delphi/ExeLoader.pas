@@ -1,7 +1,7 @@
 unit ExeLoader;
 
 //{$DEFINE DEBUG_STACK_PRINT}
-//{$DEFINE PRINT_INSTRUMENTATION}
+{$DEFINE PRINT_INSTRUMENTATION}
 
 interface
 uses
@@ -214,7 +214,10 @@ begin
 {$ENDIF}
 
   if (pExceptionAddr >= PByte(@DHExitProfileBlock)) and (pExceptionAddr <= (PByte(@DHExitProfileBlock) + 256)) then
-    Exit(0);
+    begin
+      LogDebug('Within ProfileBlock range', []);
+      Exit(0);
+    end;
 
   HookEpilogueException;
 

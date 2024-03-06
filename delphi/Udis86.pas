@@ -1252,7 +1252,7 @@ begin
         begin
           if ud.udOperand[nOperand].nBase = UD_R_RIP then
             begin
-              if Uint64(pRelBuffer) > $FFFFFFFF then
+              if Uint64(pRelBuffer) > $7FFFFFFF then
                 Exit(udErrExecBufferNotRelativeNear);
 
               nSizeBits := ud.udOperand[nOperand].nSize;
@@ -1265,6 +1265,8 @@ begin
                     Inc(nOpOffsetFromEnd, ud.udOperand[nOf].nOffset div 8)
                   else if ud.udOperand[nOf].nType = UD_OP_IMM then
                     Inc(nOpOffsetFromEnd, ud.udOperand[nOf].nSize div 8)
+                  else if ud.udOperand[nOf].nType = UD_OP_REG then
+                    Continue
                   else if ud.udOperand[nOf].nType = UD_NONE then
                     Continue
                   else
