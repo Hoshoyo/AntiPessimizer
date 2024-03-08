@@ -157,6 +157,7 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                         {
                             String dbg_name = ustr_new_c(bytes);
                             antip->remote_threads[i].debug_name = dbg_name;
+                            printf("Named thread %d as %s\n", dbg_event.dwThreadId, dbg_name.data);
                             break;
                         }
                     }

@@ -3,6 +3,7 @@ unit CoreProfiler;
 interface
 uses
   SyncObjs,
+  Windows,
   Classes;
 
 const
@@ -60,12 +61,14 @@ type
     pLastHookJmp : PPointer; // Needs to be the second addresss
     nThreadIndex : Integer;
     nRes         : Integer;
-    pRes         : Pointer;
+    pPatchRsp    : Pointer; // Address where we need to patch the rsp when an exception occurs
   end;
 
   procedure DHEnterProfileBlock(nAddr : Pointer);
   function  DHExitProfileBlock: Pointer;
   function  DHExitProfileBlockException: Pointer;
+  function  DHUnwindExceptionBlock(HookEpilogue: Pointer; EstablisherFrame: NativeUInt; ContextRecord: Pointer; DispatcherContext: Pointer): Pointer;
+  function  DHUnwindEveryStack: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
   procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter; bName : Boolean);
   procedure PrintLengthOfAnchors;
@@ -87,7 +90,6 @@ uses
   ExeLoader,
   JclPeImage,
   Utils,
-  Windows,
   SysUtils;
 
 var
@@ -96,6 +98,32 @@ var
 
   g_ThreadAllocIndex : Integer;
   g_nCyclesPerSecond : Int64;
+
+{$IFDEF MSWINDOWS}
+type
+  PRuntimeFunction = ^TRuntimeFunction;
+  TRuntimeFunction = record
+    FunctionStart: LongWord;
+    FunctionEnd: LongWord;
+    UnwindInfo: LongWord;
+  end;
+  PExecptionRoutine = Pointer;
+  PUnwindHistoryTable = Pointer;
+  PDispatcherContext = ^TDispatcherContext;
+  TDispatcherContext = record
+    ControlPc:        NativeUInt;           //  0 $00
+    ImageBase:        NativeUInt;           //  8 $08
+    FunctionEntry:    PRuntimeFunction;     // 16 $10
+    EstablisherFrame: NativeUInt;           // 24 $18
+    TargetIp:         NativeUInt;           // 32 $20
+    ContextRecord:    PContext;             // 40 $28
+    LanguageHandler:  PExecptionRoutine;    // 48 $30
+    HandlerData:      Pointer;              // 56 $38
+    HistoryTable:     PUnwindHistoryTable;  // 64 $40
+    ScopeIndex:       UInt32;               // 72 $48
+    _Fill0:           UInt32;               // 76 $4c
+  end;                                      // 80 $50
+{$ENDIF}
 
 
 procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
@@ -163,13 +191,15 @@ end;
 
 procedure DHEnterProfileBlock(nAddr : Pointer);
 var
-  pBlock       : PDHProfileBlock;
-  nAtIdx       : Integer;
-  nThrIdx      : Integer;
-  pAnchor      : PProfileAnchor;
-  pEpilogueJmp : Pointer;
+  pBlock        : PDHProfileBlock;
+  nAtIdx        : Integer;
+  nThrIdx       : Integer;
+  pAnchor       : PProfileAnchor;
+  pEpilogueJmp  : Pointer;
+  nCurrThreadID : Cardinal;
 begin
-  nThrIdx := GetLocationFromThreadID(nAddr, GetCurrentThreadID, pAnchor, pEpilogueJmp);
+  nCurrThreadID := GetCurrentThreadID;
+  nThrIdx := GetLocationFromThreadID(nAddr, nCurrThreadID, pAnchor, pEpilogueJmp);
 
   Inc(g_DHProfileStack[nThrIdx].nAtIndex);
   nAtIdx := g_DHProfileStack[nThrIdx].nAtIndex;
@@ -178,9 +208,9 @@ begin
   pBlock.pParentAnchor := g_DHProfileStack[nThrIdx].pbBlocks[nAtIdx-1].pAnchor;
   pBlock.pAnchor := pAnchor;
   pBlock.ptrReturnTarget := pEpilogueJmp;
-  pBlock.ptrLastHookJump := g_ThreadTranslateT[GetCurrentThreadID].pLastHookJmp;
+  pBlock.ptrLastHookJump := g_ThreadTranslateT[nCurrThreadID].pLastHookJmp;
 
-  //LogDebug(' Enter - ThreadIndex=%d AtIdx=%d Block=%p %d %s', [nThrIdx, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
+  LogDebug(' Enter - ThreadIndex=%d ThreadID=%d AtIdx=%d Block=%p %d %s', [nThrIdx, GetCurrentThreadID, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
 
   pBlock.nPrevTimeInclusive := pBlock.pAnchor.nElapsedInclusive;
   pBlock.nStartTime := ReadTimeStamp;
@@ -233,8 +263,11 @@ var
   nAtIdx       : Integer;
 begin
   nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
+  //LogDebug('DHExitProfileBlockException ThreadIndex=%d, nAtIndex=%d CurrentThreadID=%d', [nThrIndex, g_DHProfileStack[nThrIndex].nAtIndex, GetCurrentThreadID]);
   if (nThrIndex = -1) or (g_DHProfileStack[nThrIndex].nAtIndex = 0) then
-    Exit(nil);
+    begin
+      Exit(nil);
+    end;
   Result := DHExitProfileBlock;
   nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex + 1;
   pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
@@ -242,6 +275,78 @@ begin
   pLastHookJmp := pBlock.ptrLastHookJump;
   if pLastHookJmp <> nil then
     pLastHookJmp^ := Result;
+end;
+
+function DHUnwindEveryStack: Pointer;
+var
+  nThrIndex    : Integer;
+  pLastHookJmp : PPointer;
+  pBlock       : PDHProfileBlock;
+  nAtIdx       : Integer;
+begin
+  nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
+  nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
+
+  if (nThrIndex = -1) or (nAtIdx = 0) then
+    begin
+      Exit(nil);
+    end;
+
+  while nAtIdx > 0 do
+    begin
+      pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
+      pLastHookJmp := pBlock.ptrLastHookJump;
+      if pLastHookJmp <> nil then
+        pLastHookJmp^ := pBlock.ptrReturnTarget;
+      Dec(nAtIdx)
+    end;
+  Result := nil;
+end;
+
+function DHUnwindExceptionBlock(HookEpilogue: Pointer; EstablisherFrame: NativeUInt; ContextRecord: Pointer; DispatcherContext: Pointer): Pointer;
+var
+  pContext     : PDispatcherContext;
+  ptrStart     : PByte;
+  ptrEnd       : PByte;
+  nThrIndex    : Integer;
+  nAtIdx       : Integer;
+  nIndex       : Integer;
+  pBlock       : PDHProfileBlock;
+  pLastHookJmp : PPointer;
+begin
+  pContext := PDispatcherContext(DispatcherContext);
+  ptrStart := PByte(pContext.ImageBase + pContext.FunctionEntry.FunctionStart);
+  ptrEnd := PByte(pContext.ImageBase + pContext.FunctionEntry.FunctionEnd);
+
+  nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
+  nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
+
+  for nIndex := nAtIdx downto 0 do
+    begin
+      nAtIdx := -1;
+      pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nIndex];
+      pLastHookJmp := pBlock.ptrLastHookJump;
+
+      if pLastHookJmp = nil then
+        Break;
+
+      if (PByte(pLastHookJmp^) >= ptrStart) and (PByte(pLastHookJmp^) <= ptrEnd) then
+        begin
+          nAtIdx := nIndex - 1;
+          Break;
+        end;
+
+      DHExitProfileBlock;
+    end;
+
+  if nAtIdx <> -1 then
+    begin
+      for nIndex := nAtIdx downto 0 do
+        begin
+          if pLastHookJmp <> nil then
+            pLastHookJmp^ := HookEpilogue;
+        end;
+    end;
 end;
 
 function CyclesToMs(nCycles : Int64): Double;
