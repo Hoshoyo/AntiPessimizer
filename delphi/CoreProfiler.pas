@@ -66,7 +66,6 @@ type
 
   procedure DHEnterProfileBlock(nAddr : Pointer);
   function  DHExitProfileBlock: Pointer;
-  function  DHExitProfileBlockException: Pointer;
   function  DHUnwindExceptionBlock(HookEpilogue: Pointer; EstablisherFrame: NativeUInt; ContextRecord: Pointer; DispatcherContext: Pointer): Pointer;
   function  DHUnwindEveryStack: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
@@ -135,6 +134,8 @@ begin
   g_DHTableProfiler := pAnchor;
   g_DHProfileStack[0].nAddrOffset := nOffsetFromModuleBase;
   g_DHProfileStack[0].nAtIndex := 0;
+  for nIndex := 0 to Length(g_DHProfileStack)-1 do
+    g_DHProfileStack[nIndex].nAtIndex := 0;
 
   ZeroMemory(@g_ThreadTranslateT[0], sizeof(g_ThreadTranslateT));
   For nIndex := 0 to Length(g_ThreadTranslateT)-1 do
@@ -210,7 +211,7 @@ begin
   pBlock.ptrReturnTarget := pEpilogueJmp;
   pBlock.ptrLastHookJump := g_ThreadTranslateT[nCurrThreadID].pLastHookJmp;
 
-  LogDebug(' Enter - ThreadIndex=%d ThreadID=%d AtIdx=%d Block=%p %d %s', [nThrIdx, GetCurrentThreadID, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
+  //LogDebug(' Enter - ThreadIndex=%d ThreadID=%d AtIdx=%d Block=%p %d %s', [nThrIdx, GetCurrentThreadID, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
 
   pBlock.nPrevTimeInclusive := pBlock.pAnchor.nElapsedInclusive;
   pBlock.nStartTime := ReadTimeStamp;
@@ -255,28 +256,6 @@ begin
   end;
 end;
 
-function DHExitProfileBlockException: Pointer;
-var
-  nThrIndex    : Integer;
-  pLastHookJmp : PPointer;
-  pBlock       : PDHProfileBlock;
-  nAtIdx       : Integer;
-begin
-  nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
-  //LogDebug('DHExitProfileBlockException ThreadIndex=%d, nAtIndex=%d CurrentThreadID=%d', [nThrIndex, g_DHProfileStack[nThrIndex].nAtIndex, GetCurrentThreadID]);
-  if (nThrIndex = -1) or (g_DHProfileStack[nThrIndex].nAtIndex = 0) then
-    begin
-      Exit(nil);
-    end;
-  Result := DHExitProfileBlock;
-  nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex + 1;
-  pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
-
-  pLastHookJmp := pBlock.ptrLastHookJump;
-  if pLastHookJmp <> nil then
-    pLastHookJmp^ := Result;
-end;
-
 function DHUnwindEveryStack: Pointer;
 var
   nThrIndex    : Integer;
@@ -287,7 +266,7 @@ begin
   nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
   nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
 
-  if (nThrIndex = -1) or (nAtIdx = 0) then
+  if (nThrIndex = -1) or (nAtIdx <= 0) then
     begin
       Exit(nil);
     end;
@@ -319,9 +298,13 @@ begin
   ptrEnd := PByte(pContext.ImageBase + pContext.FunctionEntry.FunctionEnd);
 
   nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
+  if nThrIndex < 0 then
+    Exit(nil);
   nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
+  if nAtIdx < 0 then
+    Exit(nil);
 
-  for nIndex := nAtIdx downto 0 do
+  for nIndex := nAtIdx downto 1 do
     begin
       nAtIdx := -1;
       pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nIndex];

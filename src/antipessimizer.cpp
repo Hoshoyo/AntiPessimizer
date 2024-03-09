@@ -502,7 +502,9 @@ antipessimizer_start(const char* filepath)
                 {
                     InstrumentedProcedure* ip = em->procedures + k;
                     if (!string_has_prefix_char((char*)"System.", ip->demangled_name) && 
-                        !string_has_prefix_char((char*)"Winapi.", ip->demangled_name))
+                        !string_has_prefix_char((char*)"Winapi.", ip->demangled_name) &&
+                        !string_has_prefix_char((char*)"Overbyte", ip->demangled_name) && 
+                        !string_has_prefix_char((char*)"Jcl", ip->demangled_name))
                     {
                         array_push(instrumented, em->procedures[k]);
                     }

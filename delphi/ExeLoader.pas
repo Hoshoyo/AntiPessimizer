@@ -44,6 +44,8 @@ type
   procedure InstrumentModuleProcs;
   procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
   function  ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
+  procedure PatchProcedure(ptrProcAddr : PByte; ptrNewProcAddr : PByte);
+  procedure HookedExceptionHandler;
 
   procedure PrintDebugStack(ExceptionInfo : PEXCEPTION_POINTERS);
   procedure PrintRegisters(ExceptionInfo : PEXCEPTION_POINTERS);
@@ -118,14 +120,6 @@ asm
 {$ENDIF}
 
   // return to the jump target
-end;
-
-function HookEpilogueException: Pointer;
-asm
-  .noframe
-  sub rsp, 40
-  call DHExitProfileBlockException
-  add rsp, 40
 end;
 
 procedure HookJump;
@@ -354,8 +348,6 @@ begin
                 end;
             end;
           Result.AddOrSetValue(strName, lstProcs);
-
-          //Writeln(Format('SourceModule %s has %d procedures.', [strName, lstProcs.Count]));
         end;
     end;
 end;
@@ -376,10 +368,13 @@ var
   nTimeStart   : Int64;
   nElapsed     : Int64;
   nProcCount   : Int64;
+  pProcAddr    : Pointer;
+  bFoundExceptionHandler : Boolean;
 begin
   Result := TDictionary<String, TList<TJclTD32ProcSymbolInfo>>.Create;
   nTimeStart := ReadTimeStamp;
   nProcCount := 0;
+  bFoundExceptionHandler := False;
 
   if Item is TJclDebugInfoTD32 then
     begin
@@ -395,7 +390,7 @@ begin
               nSearchStart := modInfo.Segment[nSeg].Offset;
               nSearchEnd   := modInfo.Segment[nSeg].Offset + modInfo.Segment[nSeg].Size;
 
-              if nStart > 0 then
+              //if nStart > 0 then
                 nStart := ProcBinarySearch(Image, nSearchStart);
 
               if nStart <> -1 then
@@ -404,7 +399,21 @@ begin
                     begin
                       procInfo := Image.TD32Scanner.ProcSymbols[nProc];
                       if (procInfo.Offset < Cardinal(nSearchEnd)) then
-                        lstProcs.Add(procInfo)
+                        begin
+                          lstProcs.Add(procInfo);
+
+                          if not bFoundExceptionHandler then
+                            begin
+                              strName := Image.TD32Scanner.Names[procInfo.NameIndex];
+                              if strName.StartsWith('_ZN6System23_DelphiExceptionHandler') then // '_ZN6System23_DelphiExceptionHandlerEPNS_16TExceptionRecordEyPvS2_' then
+                                begin
+                                  bFoundExceptionHandler := True;
+                                  pProcAddr := PByte(moduleBaseAddr + procInfo.Offset + c_nModuleCodeOffset);
+                                  LogDebug('ClassifyProcByModule: Found exception handler at address %p', [pProcAddr]);
+                                  PatchProcedure(pProcAddr, @HookedExceptionHandler);
+                                end;                          
+                            end;
+                        end
                       else
                         Break;
                     end;
@@ -528,7 +537,7 @@ begin
             begin
               g_DHArrProcedures[nIndex] := pProcAddr;
               if not InstrumentFunction(strName, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
-                g_DHArrProcedures[nIndex] := nil;              
+                g_DHArrProcedures[nIndex] := nil;
             end
           else
             begin
@@ -588,26 +597,23 @@ var
   nBytesDisassembled : Cardinal;
   nOldProtect : DWORD;
 begin
-  // mov rax, imm64 ->  48 B8 BC 9A 78 56 34 12 00 00 mov         rax,123456789ABCh
-  // call rax ->        FF D0                         call        rax
-
   New(pBuf);
   VirtualProtect(Pointer(pBuf), sizeof(TBuffer), PAGE_EXECUTE_READWRITE, nOldProtect);
 
   if UdisDisasmAtLeastAndPatchRelatives(ptrProcAddr, sizeof(TBuffer), 15, PByte(pBuf), sizeof(TBuffer), nBytesDisassembled) = udErrNone then
     begin
-      LogDebug('PatchingProcedure',[]);
+      LogDebug('PatchingProcedure %p to %p', [ptrProcAddr, ptrNewProcAddr]);
 
       VirtualProtect(Pointer(ptrProcAddr), nBytesDisassembled, PAGE_EXECUTE_READWRITE, nOldProtect);
       // 15 bytes in total
       // mov rax imm64
-      // jmp HookJump
+      // jmp ptrNewProcAddr
       ptrProcAddr[0] := $48;
       ptrProcAddr[1] := $B8;
       PUint64(ptrProcAddr + 2)^ := Uint64(pBuf);
       ptrProcAddr[9] := Byte(nBytesDisassembled - 15);
       ptrProcAddr[$A] := $E8;
-      PCardinal(ptrProcAddr + $B)^ := Cardinal(Int64(@HookedExceptionHandler) - Int64(ptrProcAddr + $B + 4));
+      PCardinal(ptrProcAddr + $B)^ := Cardinal(Int64(ptrNewProcAddr) - Int64(ptrProcAddr + $B + 4));
     end
   else
     LogDebug('Fail to Patch procedure',[]);
@@ -653,16 +659,6 @@ begin
           if Uint64(pProcAddr) > nHighProc then
             nHighProc := Uint64(pProcAddr);
         end;
-
-      for procInfo in lstProcs do
-        if Image.TD32Scanner.Names[procInfo.NameIndex] = '_ZN6System23_DelphiExceptionHandlerEPNS_16TExceptionRecordEyPvS2_' then
-          begin
-            pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
-            PatchProcedure(pProcAddr, nil);
-
-            Break;
-          end;
-      //Exit;
 
       // After finding it allocate the memory needed
       if (nLowProc <> $FFFFFFFFFFFFFFFF) and (nHighProc <> 0) and (nHighProc > nLowProc) then
@@ -734,24 +730,6 @@ begin
       //LogDebug('%p %s:%d', [BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
       LogDebug('%p', [BackTrace[nIndex]]);
     end;
-  {
-  lstStack := JclCreateStackList(True, 0, nil);
-
-  LogDebug('Stack=%p', [lstStack]);
-  LogDebug('Stack size=%d', [lstStack.Count]);
-  for nIndex := 0 to lstStack.Count-1 do
-    begin
-      LogDebug('%x', [lstStack.Items[nIndex].CallerAddr]);
-    end;
-
-  lstStrings := TStringList.Create;
-  lstStack.AddToStrings(lstStrings, False, False, True);
-  LogDebug('2', []);
-  LogDebug(' %s', [lstStrings.Text]);
-  LogDebug('3', []);
-  }
-
-  //ExitProcess(1);
 end;
 
 procedure PrintDebugFullStack;
@@ -811,7 +789,6 @@ begin
 
   for Item in dcProcsByModule do
     begin
-      //OutputDebugString(PWidechar(Item.Key + ' Count=' + IntToStr(Item.Value.Count)));
       writer.Write(Item.Key);
       writer.Write(Integer(Item.Value.Count));
       for nIndex := 0 to Item.Value.Count-1 do
@@ -836,39 +813,12 @@ begin
 end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
-var
-  pLastHook : PPointer;
-  pExceptionAddr : PByte;
 begin
-  pExceptionAddr := ExceptionInfo.ExceptionRecord.ExceptionAddress;
-  LogDebug('Exception at %p Thread %d', [pExceptionAddr, GetCurrentThreadID]);
-
-  // TODO(psv): Not handle exceptions that are not from the module address space
-  //if (Uint64(ExceptionInfo.ExceptionRecord.ExceptionAddress) > $FFFFFFFF) then
-  //  Exit(0);
-
-{$IFDEF DEBUG_STACK_PRINT}
-  PrintRegisters(ExceptionInfo);
+  LogDebug('Exception at %p code: %x Thread: %d', [ExceptionInfo.ExceptionRecord.ExceptionAddress, ExceptionInfo.ExceptionRecord.ExceptionCode, GetCurrentThreadID]);
   //PrintDebugStack(ExceptionInfo);
-{$ENDIF}
-
-  if (pExceptionAddr >= PByte(@DHExitProfileBlock)) and (pExceptionAddr <= (PByte(@DHExitProfileBlock) + 256)) then
-    begin
-      LogDebug('Within ProfileBlock range', []);
-      Exit(0);
-    end;
-
-  HookEpilogueException;
-
-  //_DelphiExceptionHandler;
-
-  Result := 0;
-end;
-
-function ExceptionHandler2(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
-begin
-  Result := 0;
+  
   DHUnwindEveryStack;
+  Result := 0;
 end;
 
 procedure LoadVectoredExceptionHandling;
@@ -878,8 +828,7 @@ begin
     begin
       @AddVectoredExceptionHandler := GetProcAddress(g_hKernel, 'AddVectoredExceptionHandler');
       if @AddVectoredExceptionHandler <> nil then
-        //AddVectoredExceptionHandler(1, @ExceptionHandler);
-        AddVectoredExceptionHandler(1, @ExceptionHandler2);
+        AddVectoredExceptionHandler(1, @ExceptionHandler);
 
       @RemoveVectoredExceptionHandler := GetProcAddress(g_hKernel, 'RemoveVectoredExceptionHandler');
       @RtlCaptureStackBackTrace := GetProcAddress(g_hKernel, 'RtlCaptureStackBackTrace');
