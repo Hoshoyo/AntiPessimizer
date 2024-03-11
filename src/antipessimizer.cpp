@@ -643,6 +643,10 @@ process_profiling_result(uint8_t* msg, int size, bool has_name)
             if (has_name)
             {
                 int value = read_7bit_encoded_int(&at);
+                if (value > 4096)
+                {
+                    goto cannot_read;
+                }
                 anchor.name = ustr_new_len_c((char*)at, value);
                 at += value;
             }
@@ -668,6 +672,8 @@ process_profiling_result(uint8_t* msg, int size, bool has_name)
 
         read_bytes -= (at - start);
     }
+cannot_read:
+    return;
 }
 
 String

@@ -319,9 +319,12 @@ begin
       else
         begin
           pAnchor := pResAnchor;
-          pAnchor.strName := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset).strName;
-          pAnchor.pAddr := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset).pAddr;
-          pAnchor.nThreadID := nThreadID;
+          if pAnchor.pAddr = nil then
+            begin
+              pAnchor.strName := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset).strName;
+              pAnchor.pAddr := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset).pAddr;
+              pAnchor.nThreadID := nThreadID;
+            end;
         end;
     end;
 
@@ -438,6 +441,7 @@ var
   nIndex       : Integer;
   pBlock       : PDHProfileBlock;
   pLastHookJmp : PPointer;
+  bFound       : Boolean;
 begin
   Result := nil;
   pContext := PDispatcherContext(DispatcherContext);
@@ -452,10 +456,13 @@ begin
     Exit(nil);
 
   if g_DHProfileStack[nThrIndex].bUnwinding then
-      g_DHProfileStack[nThrIndex].bUnwinding := False;
+    g_DHProfileStack[nThrIndex].bUnwinding := False
+  else
+    Exit(nil);
 
   //SendMessage(g_AntipessimizerGuiWindow, 1024, nThrIndex, nAtIdx);
 
+  bFound := False;
   for nIndex := nAtIdx downto 0 do
     begin
       nAtIdx := -1;
@@ -465,28 +472,34 @@ begin
       if pLastHookJmp = nil then
         Break;
 
+      //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pLastHookJmp^), $1000);
+      //DHExitProfileBlock;
+
       if (PByte(pLastHookJmp^) >= ptrStart) and (PByte(pLastHookJmp^) <= ptrEnd) then
         begin
           nAtIdx := nIndex - 1;
+          bFound := True;
           Break;
         end;
-
-      //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pLastHookJmp^), $1000);
-      DHExitProfileBlock;
     end;
 
-  if nAtIdx <> -1 then
+  if (nAtIdx <> -1) and bFound then
     begin
-      for nIndex := nAtIdx downto 0 do
+      for nIndex := g_DHProfileStack[nThrIndex].nAtIndex downto 0 do
         begin
-          //pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nIndex];
-          //pLastHookJmp := pBlock.ptrLastHookJump;
+          if nIndex < nAtIdx then
+            begin          
+              pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nIndex];
+              pLastHookJmp := pBlock.ptrLastHookJump;
 
-          if pLastHookJmp <> nil then
-            begin
-              //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pLastHookJmp^), 1000);
-              pLastHookJmp^ := HookEpilogue;
-            end;
+              if pLastHookJmp <> nil then
+                begin
+                  //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pLastHookJmp^), 1000);
+                  pLastHookJmp^ := HookEpilogue;
+                end;
+            end
+          else
+            DHExitProfileBlock;
         end;
     end;
 end;
@@ -541,7 +554,7 @@ begin
 
       nBundleIndex := 0;
       nThrIdx := 0;
-      bundle := nil;
+      bundle := prAnchor.ptrNextAnchors;
 
       repeat
         repeat
@@ -572,7 +585,8 @@ begin
                       prAnchor := @bundle.arAnchors[nBundleIndex];
                     end;
                 end;
-              nThrIdx := nBundleIndex + Integer(bundle.nFirstIndex);
+              if bundle <> nil then
+                nThrIdx := nBundleIndex + Integer(bundle.nFirstIndex);
             end
           else
             prAnchor := nil;
@@ -609,7 +623,7 @@ begin
 
       nBundleIndex := 0;
       nThrIdx := 0;
-      bundle := nil;
+      bundle := prAnchor.ptrNextAnchors;
 
       repeat
         repeat
@@ -642,7 +656,8 @@ begin
                       prAnchor := @bundle.arAnchors[nBundleIndex];
                     end;
                 end;
-              nThrIdx := nBundleIndex + Integer(bundle.nFirstIndex);
+              if bundle <> nil then
+                nThrIdx := nBundleIndex + Integer(bundle.nFirstIndex);
             end
           else
             prAnchor := nil;
