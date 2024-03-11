@@ -122,6 +122,7 @@ void
 antipessimizer_request_result()
 {
     DWORD written = 0;
+    //DebugRequest dr = { sizeof(DebugRequest) - sizeof(uint32_t), ctProfilingDataNoName };
     DebugRequest dr = { sizeof(DebugRequest) - sizeof(uint32_t), ctProfilingData };
     WriteFile(antip.pipe, &dr, sizeof(dr), &written, 0);
 }
@@ -141,6 +142,8 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
     switch (dbg_event.dwDebugEventCode)
     {
         case EXCEPTION_DEBUG_EVENT: {
+            printf("*** Antipessimizer Exception *** Code=%x Address=0x%llx\n", dbg_event.u.Exception.ExceptionRecord.ExceptionCode,
+                dbg_event.u.Exception.ExceptionRecord.ExceptionAddress);
             switch (dbg_event.u.Exception.ExceptionRecord.ExceptionCode)
             {
             case 0x406d1388: { // Name Thread for debugging                
@@ -642,6 +645,11 @@ process_profiling_result(uint8_t* msg, int size, bool has_name)
                 int value = read_7bit_encoded_int(&at);
                 anchor.name = ustr_new_len_c((char*)at, value);
                 at += value;
+            }
+            else
+            {
+                anchor.name.data = 0;
+                anchor.name.length = 0;
             }
 
             anchor.address = *(uint64_t*)at;

@@ -17,7 +17,7 @@ uses
   Utils in 'Utils.pas',
   Udis86 in 'Udis86.pas';
 
-procedure LevelException1;
+procedure LevelException0;
 var
   nNonsense : Integer;
 begin
@@ -30,6 +30,18 @@ begin
   //raise Exception.Create('Foo');
 end;
 
+procedure LevelException1;
+var
+  nNonsense : Integer;
+begin
+  nNonsense := 5;
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+  LevelException0;
+end;
+
 procedure LevelException2;
 var
   nNonsense : Integer;
@@ -39,7 +51,11 @@ begin
   Inc(nNonsense, nNonsense + 5);
   Inc(nNonsense, nNonsense + 5);
   Inc(nNonsense, nNonsense + 5);
-  LevelException1;
+  try
+    LevelException1;
+  finally
+    Writeln('Do shit');
+  end;
 end;
 
 procedure LevelException3;
@@ -77,6 +93,7 @@ begin
 end;
 
 begin
+  g_AntipessimizerGuiWindow := FindWindow('AntiPessimizerClass', nil);
   InstrumentModuleProcs;
 
   TestFunction;

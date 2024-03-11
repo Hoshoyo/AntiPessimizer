@@ -155,6 +155,7 @@ gui_selection_window(Gui_State* gui)
                 {
                     ExeModule* em = modtable->modules + i;
 
+                    //if(em->name.data[0] != gui->unit_filter[0])
                     if (!strstr(em->name.data, gui->unit_filter))
                     {                        
                         continue;
@@ -263,7 +264,7 @@ compare_anchor_elapsed_exclusive(const void* lhs, const void* rhs)
 
     if (res != 0)
         return sort_algo_direction * sign;
-    else
+    else if (left->name.data && right->name.data)
         return strncmp(left->name.data, right->name.data, left->name.length) * sort_algo_direction;
 }
 
@@ -365,7 +366,14 @@ gui_results(Gui_State* gui)
                             color_exclusive = interpolate_color(low_color, high_color, factor);
                         }
 
-                        ImGui::PushID(item->name.data);
+                        if(item->name.data)
+                            ImGui::PushID(item->name.data);
+                        else
+                        {
+                            char buf[32] = { 0 };
+                            sprintf(buf, "0xllx", item->address);
+                            ImGui::PushID(buf);
+                        }
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
                         if(item->name.length > 0)

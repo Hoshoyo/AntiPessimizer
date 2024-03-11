@@ -191,6 +191,23 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     switch (msg)
     {
+    case WM_USER: {
+        HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+        if(lParam == 0x1000)
+            SetConsoleTextAttribute(h, FOREGROUND_RED);
+        else if(lParam == 0x2000)
+            SetConsoleTextAttribute(h, FOREGROUND_GREEN);
+        else if (lParam == 0x3000)
+            SetConsoleTextAttribute(h, FOREGROUND_BLUE);
+
+        if (lParam >= 0x100000)
+            SetConsoleTextAttribute(h, FOREGROUND_RED);
+        if(lParam >= 0x200000)
+            SetConsoleTextAttribute(h, FOREGROUND_BLUE);
+
+        printf("Received WM_USER message ThreadIndex=0x%llx AtIndex=0x%llx\n", (uint64_t)wParam, (uint64_t)lParam);
+        SetConsoleTextAttribute(h, FOREGROUND_RED| FOREGROUND_GREEN | FOREGROUND_BLUE);
+    } break;
     case WM_SIZE:
         if (wParam == SIZE_MINIMIZED)
             return 0;

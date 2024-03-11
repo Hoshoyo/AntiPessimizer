@@ -1,7 +1,7 @@
 unit ExeLoader;
 
-{$DEFINE DEBUG_STACK_PRINT}
-{$DEFINE PRINT_INSTRUMENTATION}
+//{$DEFINE DEBUG_STACK_PRINT}
+//{$DEFINE PRINT_INSTRUMENTATION}
 
 interface
 uses
@@ -176,6 +176,20 @@ asm
     add r10, rax  // go back to the position after the buffered execution
     push r10
 
+    {
+    push rcx
+    sub rsp, 40
+    mov rcx, g_AntipessimizerGuiWindow
+    mov rdx, 1024
+    lea r8, qword ptr [rsp+$60]
+    mov r9, qword ptr gs:[$30]
+    mov r9d, dword ptr [r9+$48]
+    or r9, $200000
+    call SendMessage
+    add rsp, 40
+    pop rcx    
+    }
+    
     sub rsp, 40
     call DHEnterProfileBlock
     add rsp, 40
@@ -201,8 +215,6 @@ begin
   Result := PJclPeBorTD32Image(Pointer(NativeInt(obj) + MemberVarOffset))^;
 end;
 
-var
-  g_pMem : Pointer;
 function InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor): Boolean;
 var
   pExecBuffer : PAnchorBuffer;
@@ -247,6 +259,7 @@ begin
           // this fields in the anchor.
           pAnchor.nThreadID := -1;
           pAnchor.strName := strName;
+          pAnchor.pAddr := pProcAddr;
 
           VirtualProtect(Pointer(pProcAddr), nSize, PAGE_EXECUTE_READWRITE, nOldProtect);
           // 15 bytes in total
@@ -365,8 +378,8 @@ var
   lstProcs     : TList<TJclTD32ProcSymbolInfo>;
   procInfo     : TJclTD32ProcSymbolInfo;
   nProc        : Integer;
-  nTimeStart   : Int64;
-  nElapsed     : Int64;
+  nTimeStart   : UInt64;
+  nElapsed     : UInt64;
   nProcCount   : Int64;
   pProcAddr    : Pointer;
   bFoundExceptionHandler : Boolean;
@@ -375,6 +388,7 @@ begin
   nTimeStart := ReadTimeStamp;
   nProcCount := 0;
   bFoundExceptionHandler := False;
+  nElapsed := 0;
 
   if Item is TJclDebugInfoTD32 then
     begin
@@ -423,9 +437,9 @@ begin
           Result.AddOrSetValue(strName, lstProcs);
           Inc(nProcCount, lstProcs.Count);
         end;
+      nElapsed := nElapsed + (ReadTimeStamp - nTimeStart);
+      LogDebug('ClassifyProcByModule elapsed: %f ms ProcedureCount=%d ModuleCount=%d', [CyclesToMs(Int64(nElapsed)), nProcCount, Image.TD32Scanner.ModuleCount]);
     end;
-  nElapsed := nElapsed + (ReadTimeStamp - nTimeStart);
-  LogDebug('ClassifyProcByModule elapsed: %f ms ProcedureCount=%d ModuleCount=%d', [CyclesToMs(nElapsed), nProcCount, Image.TD32Scanner.ModuleCount]);
 end;
 
 function CreateDebugInfoWithTD32(const Module : HMODULE): TJclDebugInfoSource;
@@ -458,6 +472,7 @@ var
   Item    : TJclDebugInfoSource;
   modInfo : MODULEINFO;
 begin
+  Result := nil;
   Item := CreateDebugInfoWithTD32(Module);
 
   GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
@@ -541,7 +556,7 @@ begin
             end
           else
             begin
-              OutputDebugString(PWidechar('Could not instrument function ' + strName + ' too small ' + Uint64(pProcAddr).ToString + ' ' + nLastAddr.ToString));              
+              //OutputDebugString(PWidechar('Could not instrument function ' + strName + ' too small ' + Uint64(pProcAddr).ToString + ' ' + nLastAddr.ToString));
             end;
 
           nLastAddr := UInt64(pProcAddr);
@@ -714,28 +729,25 @@ end;
 
 procedure PrintDebugStack(ExceptionInfo : PEXCEPTION_POINTERS);
 var
-  lstStack : TJclStackInfoList;
-  lstStrings : TStringList;
   nIndex : Integer;
   nStackCount : Word;
-  BackTrace : array [0..63] of Pointer;
-  locInfo : TJclLocationInfo;
+  BackTrace : array [0..128] of Pointer;
+  //locInfo : TJclLocationInfo;
 begin
-  nStackCount := RtlCaptureStackBackTrace(0, 64, @BackTrace[0], nil);
+  nStackCount := RtlCaptureStackBackTrace(0, 128, @BackTrace[0], nil);
   LogDebug('Stack count=%d', [nStackCount]);
 
   for nIndex := 0 to nStackCount-1 do
     begin
       //locInfo := GetLocationInfo(BackTrace[nIndex]);
-      //LogDebug('%p %s:%d', [BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
+      //LogDebug('[%d] %p %s:%d', [nIndex, BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
       LogDebug('%p', [BackTrace[nIndex]]);
     end;
+  LogDebug('=== Finished dumping stack === ', []);
 end;
 
 procedure PrintDebugFullStack;
 var
-  lstStack : TJclStackInfoList;
-  lstStrings : TStringList;
   nIndex : Integer;
   nStackCount : Word;
   BackTrace : array [0..63] of Pointer;
@@ -814,10 +826,13 @@ end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 begin
-  LogDebug('Exception at %p code: %x Thread: %d', [ExceptionInfo.ExceptionRecord.ExceptionAddress, ExceptionInfo.ExceptionRecord.ExceptionCode, GetCurrentThreadID]);
+  //LogDebug('Exception at %p code: %x Thread: %d', [ExceptionInfo.ExceptionRecord.ExceptionAddress, ExceptionInfo.ExceptionRecord.ExceptionCode, GetCurrentThreadID]);
+  //SendMessage(g_AntipessimizerGuiWindow, 1024, $FFFFFFFF, 0);
+
   //PrintDebugStack(ExceptionInfo);
-  
+
   DHUnwindEveryStack;
+
   Result := 0;
 end;
 

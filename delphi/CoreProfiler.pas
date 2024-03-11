@@ -4,10 +4,12 @@ interface
 uses
   SyncObjs,
   Windows,
+  Generics.Collections,
   Classes;
 
 const
   c_ProfilerStackSize = 1024*128;  // 128kb
+  c_AnchorBundleCount = 8;
 
 type
   TProfileBucket = record
@@ -16,15 +18,24 @@ type
     strName           : String;
   end;
 
+  PAnchorBundle = ^TAnchorBundle;
+
   TProfileAnchor = record
     nElapsedExclusive : UInt64;
     nElapsedInclusive : UInt64;
     nHitCount         : UInt64;
-    arNextAnchors     : array of TProfileAnchor;
+    ptrNextAnchors    : PAnchorBundle;
     nThreadID         : Integer;
     strName           : String;
+    pAddr             : Pointer;
   end;
   PProfileAnchor = ^TProfileAnchor;
+
+  TAnchorBundle = record
+    arAnchors   : array [0..c_AnchorBundleCount-1] of TProfileAnchor;
+    nFirstIndex : Cardinal;
+    ptrNext     : PAnchorBundle;
+  end;
 
   TProfileBlock = record
     nParentIndex       : Integer;
@@ -53,6 +64,7 @@ type
     nAddrOffset : Int64;
     nAtIndex    : Integer;
     nThreadID   : Cardinal;
+    bUnwinding  : Boolean;
   end;
 
   // This record needs to be 32 bytes long
@@ -70,7 +82,6 @@ type
   function  DHUnwindEveryStack: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
   procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter; bName : Boolean);
-  procedure PrintLengthOfAnchors;
   function  CyclesToMs(nCycles : Int64): Double;
 
   procedure PrintDHProfilerResults;
@@ -82,6 +93,7 @@ var
   g_ThreadID : Integer = 0;
   g_ThreadTranslateT : array [0..1024*1024-1] of TThrTranslate; // ThreadID translation table (supports 1 million threads)
   g_CriticalSectionAnchorAllocation : TCriticalSection;
+  g_AntipessimizerGuiWindow : HWND;
 
 implementation
 uses
@@ -143,12 +155,138 @@ begin
   LogDebug('### InitializeDHProfilerTable ### OffsetFromModuleBase=%x', [nOffsetFromModuleBase]);
 end;
 
-// Direct hashed anchored profiler
+function FindAnchor(bundle : PAnchorBundle; nIndex : Cardinal): PProfileAnchor;
+begin
+  Result := nil;
+  while bundle <> nil do
+    begin
+      if (nIndex >= bundle.nFirstIndex) and (nIndex < (bundle.nFirstIndex + c_AnchorBundleCount)) then
+        begin
+          Result := @bundle.arAnchors[nIndex mod c_AnchorBundleCount];
+          Exit(Result);
+        end;
 
+      bundle := bundle.ptrNext;
+    end;
+end;
+
+function FindOrAllocateAnchor(var profAnchor : TProfileAnchor; var poutAnchor : PProfileAnchor; nIndex : Integer): Integer;
+var
+  pBundle : PAnchorBundle;
+  pAnchor : PProfileAnchor;
+  bundle  : PAnchorBundle;
+  bPrev   : PAnchorBundle;
+begin
+  nIndex := nIndex - 1;
+  Result := nIndex;
+
+  pAnchor := FindAnchor(profAnchor.ptrNextAnchors, nIndex);
+  if pAnchor = nil then
+    begin
+      pBundle := AllocMem(sizeof(TAnchorBundle));
+      ZeroMemory(pBundle, sizeof(TAnchorBundle));
+      pBundle.nFirstIndex := (nIndex div c_AnchorBundleCount) * c_AnchorBundleCount;
+      pBundle.ptrNext := nil;
+      pAnchor := @pBundle.arAnchors[nIndex mod c_AnchorBundleCount];
+
+      if profAnchor.ptrNextAnchors = nil then
+        begin
+          // Insert at the beginning since there is no other link in the chain
+          InterlockedCompareExchangePointer(Pointer(profAnchor.ptrNextAnchors), Pointer(pBundle), nil);
+          if Pointer(profAnchor.ptrNextAnchors) = Pointer(pBundle) then
+            begin
+              // Success, we were able to perform the allocation, return the value
+              poutAnchor := pAnchor;
+              Exit(nIndex + 1);
+            end
+          else
+            begin
+              // Somebody else managed to allocate it first, try it again
+              Dispose(pBundle);
+              Exit(-1);
+            end;
+        end
+      else
+        begin
+          bundle := profAnchor.ptrNextAnchors;
+
+          if bundle.nFirstIndex > pBundle.nFirstIndex then
+            begin
+              // Insert at the beginning
+              pBundle.ptrNext := profAnchor.ptrNextAnchors;
+              InterlockedCompareExchangePointer(Pointer(profAnchor.ptrNextAnchors), Pointer(pBundle), pBundle.ptrNext);
+              if Pointer(profAnchor.ptrNextAnchors) = Pointer(pBundle) then
+                begin
+                  // Success, we were able to perform the allocation, return the value
+                  poutAnchor := pAnchor;
+                  Exit(nIndex + 1);
+                end
+              else
+                begin
+                  // Somebody else managed to allocate it first, try it again
+                  Dispose(pBundle);
+                  Exit(-1);
+                end;
+            end;
+
+          bPrev := nil;
+
+          // Need to find where to insert
+          while bundle <> nil do
+            begin
+              if (bundle.nFirstIndex > pBundle.nFirstIndex) then
+                begin
+                  // Insert before this one
+                  pBundle.ptrNext := bPrev.ptrNext;
+                  InterlockedCompareExchangePointer(Pointer(bPrev.ptrNext), Pointer(pBundle), pBundle.ptrNext);
+                  if Pointer(bPrev.ptrNext) = Pointer(pBundle) then
+                    begin
+                      // Success, we were able to perform the allocation, return the value
+                      poutAnchor := pAnchor;
+                      Exit(nIndex + 1);
+                    end
+                  else
+                    begin
+                      // Somebody else managed to allocate it first, try it again
+                      Dispose(pBundle);
+                      Exit(-1);
+                    end;
+                end;
+
+              if bundle.ptrNext = nil then
+                begin
+                  // Insert at the end
+                  InterlockedCompareExchangePointer(Pointer(bundle.ptrNext), Pointer(pBundle), nil);
+                  if Pointer(bundle.ptrNext) = Pointer(pBundle) then
+                    begin
+                      // Success, we were able to perform the allocation, return the value
+                      poutAnchor := pAnchor;
+                      Exit(nIndex + 1);
+                    end
+                  else
+                    begin
+                      // Somebody else managed to allocate it first, try it again
+                      Dispose(pBundle);
+                      Exit(-1);
+                    end;
+                end;
+              bPrev  := bundle;
+              bundle := bundle.ptrNext;
+            end;
+        end;
+    end
+  else
+    begin
+      poutAnchor := pAnchor;
+      Result := nIndex + 1;
+    end;
+end;
+
+// Direct hashed anchored profiler
 function GetLocationFromThreadID(nAddr : Pointer; nThreadID : Integer; var pAnchor : PProfileAnchor; var pEpilogueJmp : Pointer): Integer;
 var
   nIndex   : Integer;
-  nPrevLen : Integer;
+  pResAnchor : PProfileAnchor;
 begin
   pEpilogueJmp := g_ThreadTranslateT[nThreadID].pEpilogueJmp;
 
@@ -173,18 +311,18 @@ begin
 
   if nIndex > 0 then
     begin
-      nPrevLen := Length(pAnchor.arNextAnchors);
-      // This is not the first thread, allocate the slot at the Thread index
-      if nPrevLen < nIndex then
+      pResAnchor := nil;
+      while FindOrAllocateAnchor(pAnchor^, pResAnchor, nIndex) < 0 do;
+
+      if pResAnchor = nil then
+        LogDebug('Error could not create anchorfor ThreadIndex %d', [nIndex])
+      else
         begin
-          // TODO(psv): This is not thread safe at all
-          SetLength(pAnchor.arNextAnchors, nIndex);
-          //LogDebug('%s Thread %d setting length %d to anchor %p OldAddr=%p NewAddr=%p', [DateTimeToStr(Now), nThreadID, nIndex, pAnchor, nOldAddr, @pAnchor.arNextAnchors[0]]);
-          ZeroMemory(@pAnchor.arNextAnchors[nPrevLen], sizeof(pAnchor.arNextAnchors[0]) * nIndex-nPrevLen);
-          pAnchor.arNextAnchors[nIndex-1].strName := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset).strName;
-          pAnchor.arNextAnchors[nIndex-1].nThreadID := nThreadID;
+          pAnchor := pResAnchor;
+          pAnchor.strName := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset).strName;
+          pAnchor.pAddr := PProfileAnchor(PByte(nAddr) + g_DHProfileStack[0].nAddrOffset).pAddr;
+          pAnchor.nThreadID := nThreadID;
         end;
-      pAnchor := @pAnchor.arNextAnchors[nIndex-1];
     end;
 
   Result := nIndex;
@@ -212,6 +350,7 @@ begin
   pBlock.ptrLastHookJump := g_ThreadTranslateT[nCurrThreadID].pLastHookJmp;
 
   //LogDebug(' Enter - ThreadIndex=%d ThreadID=%d AtIdx=%d Block=%p %d %s', [nThrIdx, GetCurrentThreadID, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
+  //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(nAddr), $200000 or GetCurrentThreadID);
 
   pBlock.nPrevTimeInclusive := pBlock.pAnchor.nElapsedInclusive;
   pBlock.nStartTime := ReadTimeStamp;
@@ -229,10 +368,12 @@ begin
   try
     nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
     if nThrIndex = -1 then
-      Exit(0);
+      Exit(nil);
 
     nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
     pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
+
+    //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pBlock.pAnchor.pAddr), $100000 or GetCurrentThreadID);
     Dec(g_DHProfileStack[nThrIndex].nAtIndex);
 
     nElapsed := nElapsed - pBlock.nStartTime;
@@ -251,7 +392,8 @@ begin
     on E: Exception do
       begin
         LogDebug('DHExitProfileBlock Exception=%s Stack=%s CurrentThreadID=%d', [E.Message, E.StackTrace, GetCurrentThreadID]);
-        LogDebug(' Exit - ThreadIndex=%d AtIdx=%d Block=%p ThreadID=%d Anchor=%p', [nThrIndex, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor]);
+        //LogDebug(' Exit - ThreadIndex=%d AtIdx=%d Block=%p ThreadID=%d Anchor=%p', [nThrIndex, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor]);
+        Result := nil;
       end;
   end;
 end;
@@ -265,18 +407,22 @@ var
 begin
   nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
   nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
+  g_DHProfileStack[nThrIndex].bUnwinding := True;
 
   if (nThrIndex = -1) or (nAtIdx <= 0) then
     begin
       Exit(nil);
     end;
 
-  while nAtIdx > 0 do
+  while nAtIdx >= 0 do
     begin
       pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
       pLastHookJmp := pBlock.ptrLastHookJump;
       if pLastHookJmp <> nil then
-        pLastHookJmp^ := pBlock.ptrReturnTarget;
+        begin
+          pLastHookJmp^ := pBlock.ptrReturnTarget;
+          //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pLastHookJmp), $100000 or GetCurrentThreadID);
+        end;
       Dec(nAtIdx)
     end;
   Result := nil;
@@ -293,6 +439,7 @@ var
   pBlock       : PDHProfileBlock;
   pLastHookJmp : PPointer;
 begin
+  Result := nil;
   pContext := PDispatcherContext(DispatcherContext);
   ptrStart := PByte(pContext.ImageBase + pContext.FunctionEntry.FunctionStart);
   ptrEnd := PByte(pContext.ImageBase + pContext.FunctionEntry.FunctionEnd);
@@ -304,7 +451,12 @@ begin
   if nAtIdx < 0 then
     Exit(nil);
 
-  for nIndex := nAtIdx downto 1 do
+  if g_DHProfileStack[nThrIndex].bUnwinding then
+      g_DHProfileStack[nThrIndex].bUnwinding := False;
+
+  //SendMessage(g_AntipessimizerGuiWindow, 1024, nThrIndex, nAtIdx);
+
+  for nIndex := nAtIdx downto 0 do
     begin
       nAtIdx := -1;
       pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nIndex];
@@ -319,6 +471,7 @@ begin
           Break;
         end;
 
+      //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pLastHookJmp^), $1000);
       DHExitProfileBlock;
     end;
 
@@ -326,8 +479,14 @@ begin
     begin
       for nIndex := nAtIdx downto 0 do
         begin
+          //pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nIndex];
+          //pLastHookJmp := pBlock.ptrLastHookJump;
+
           if pLastHookJmp <> nil then
-            pLastHookJmp^ := HookEpilogue;
+            begin
+              //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pLastHookJmp^), 1000);
+              pLastHookJmp^ := HookEpilogue;
+            end;
         end;
     end;
 end;
@@ -370,7 +529,8 @@ var
   nIndex   : Integer;
   nThrIdx  : Integer;
   prAnchor : PProfileAnchor;
-  pRootAnchor : PProfileAnchor;
+  bundle   : PAnchorBundle;
+  nBundleIndex : Integer;
 begin
   for nIndex := 0 to Length(g_DHArrProcedures)-1 do
     begin
@@ -378,9 +538,13 @@ begin
         continue;
         
       prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack[0].nAddrOffset);
-      pRootAnchor := prAnchor;
-      For nThrIdx := 0 to g_ThreadAllocIndex do
-        begin
+
+      nBundleIndex := 0;
+      nThrIdx := 0;
+      bundle := nil;
+
+      repeat
+        repeat
           if prAnchor.nHitCount > 0 then
             begin
               Writeln(
@@ -391,13 +555,29 @@ begin
                 ' w/children=' + CyclesToMs(prAnchor.nElapsedInclusive).ToString + ' ms.' +
                 ' HitCount='  + prAnchor.nHitCount.ToString);
             end;
-          if (nThrIdx >= 0) and (Length(pRootAnchor.arNextAnchors) > 0) and (nThrIdx < Length(pRootAnchor.arNextAnchors)) then
+
+          if bundle <> nil then
             begin
-              prAnchor := @pRootAnchor.arNextAnchors[nThrIdx];
+              if nBundleIndex < c_AnchorBundleCount then
+                begin
+                  prAnchor := @bundle.arAnchors[nBundleIndex];
+                  Inc(nBundleIndex);
+                end
+              else
+                begin
+                  bundle := bundle.ptrNext;
+                  if bundle <> nil then
+                    begin
+                      nBundleIndex := 0;
+                      prAnchor := @bundle.arAnchors[nBundleIndex];
+                    end;
+                end;
+              nThrIdx := nBundleIndex + Integer(bundle.nFirstIndex);
             end
           else
-            Break;
-        end;
+            prAnchor := nil;
+        until prAnchor = nil;
+      until bundle = nil;
     end;
   Writeln;
 end;
@@ -409,7 +589,9 @@ var
   nStartPos : Integer;
   nCount    : Cardinal;
   nThrIdx   : Integer;
-  pRootAnchor : PProfileAnchor;
+  pRootAnchor  : PProfileAnchor;
+  bundle       : PAnchorBundle;
+  nBundleIndex : Integer;
 begin
   try
   nCount := 0;
@@ -424,14 +606,16 @@ begin
         continue;
 
       prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack[0].nAddrOffset);
-      pRootAnchor := prAnchor;      
 
-      For nThrIdx := 0 to g_ThreadAllocIndex do
-        begin
+      nBundleIndex := 0;
+      nThrIdx := 0;
+      bundle := nil;
+
+      repeat
+        repeat
           if prAnchor.nHitCount > 0 then
             begin
               Inc(nCount);
-              //writer.Write(PeBorUnmangleName(prAnchor.strName));
               if bName  then
                 writer.Write(prAnchor.strName);
 
@@ -440,47 +624,43 @@ begin
               writer.Write(prAnchor.nElapsedExclusive);
               writer.Write(prAnchor.nElapsedInclusive);
               writer.Write(prAnchor.nHitCount);
-            end;          
-          if (nThrIdx >= 0) and (Length(pRootAnchor.arNextAnchors) > 0) and (nThrIdx < Length(pRootAnchor.arNextAnchors)) then
-            prAnchor := @pRootAnchor.arNextAnchors[nThrIdx]
+            end;
+
+          if bundle <> nil then
+            begin
+              if nBundleIndex < c_AnchorBundleCount then
+                begin
+                  prAnchor := @bundle.arAnchors[nBundleIndex];
+                  Inc(nBundleIndex);
+                end
+              else
+                begin
+                  bundle := bundle.ptrNext;
+                  if bundle <> nil then
+                    begin
+                      nBundleIndex := 0;
+                      prAnchor := @bundle.arAnchors[nBundleIndex];
+                    end;
+                end;
+              nThrIdx := nBundleIndex + Integer(bundle.nFirstIndex);
+            end
           else
-            Break;
-        end;
+            prAnchor := nil;
+        until prAnchor = nil;
+      until bundle = nil;
     end;
 
   PCardinal(PByte(stream.Memory) + nStartPos)^ := nCount;
   except
     on E: Exception do
       begin
-        LogDebug('Serializing result Exception=%s Anchor=%p Stack=%s', [E.Message, prAnchor, E.StackTrace]);
-        LogDebug('AddrOffset=%x %p %d %p %d %d', [ g_DHProfileStack[0].nAddrOffset, PByte(g_DHArrProcedures[nIndex]), prAnchor.nHitCount, g_DHArrProcedures[nIndex], nThrIdx, Length(pRootAnchor.arNextAnchors)]);
+        LogDebug('Serializing result Exception=%s Stack=%s', [E.Message, E.StackTrace]);
       end;
   end;
 end;
 
-procedure PrintLengthOfAnchors;
-var
-  nIndex    : Integer;
-  prAnchor  : PProfileAnchor;
-  nStartPos : Integer;
-  nCount    : Cardinal;
-  nThrIdx   : Integer;
-  pRootAnchor : PProfileAnchor;
-begin
-  nCount := 0;
-  LogDebug('-------- Procedure Count= %d', [Length(g_DHArrProcedures)]);
-  for nIndex := 0 to Length(g_DHArrProcedures)-1 do
-    begin
-      if g_DHArrProcedures[nIndex] = nil then
-        continue;
-
-      prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack[0].nAddrOffset);
-      pRootAnchor := prAnchor;
-      LogDebug('Anchor=%p Lenght=%d', [g_DHArrProcedures[nIndex], Length(pRootAnchor.arNextAnchors)]);      
-    end;
-end;
-
 initialization
+  g_AntipessimizerGuiWindow := FindWindow('AntiPessimizerClass', nil);
   ZeroMemory(@g_DHProfileStack[0], sizeof(g_DHProfileStack));
   CallibrateTimeStamp;
 end.

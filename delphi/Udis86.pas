@@ -1255,7 +1255,6 @@ begin
               if Uint64(pRelBuffer) > $7FFFFFFF then
                 Exit(udErrExecBufferNotRelativeNear);
 
-              nSizeBits := ud.udOperand[nOperand].nSize;
               nNewRelOffset := Integer((pRelBuffer + nInstrSize) - (PByte(pAt) + nBytesDisassembled));
 
               nOpOffsetFromEnd := 0;
