@@ -26,6 +26,7 @@ type
     nHitCount         : UInt64;
     ptrNextAnchors    : PAnchorBundle;
     nThreadID         : Integer;
+    nLine             : Integer;
     strName           : String;
     pAddr             : Pointer;
   end;
@@ -82,6 +83,7 @@ type
   function  DHUnwindEveryStack: Pointer;
   procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
   procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter; bName : Boolean);
+  procedure ProfilerClearResults;
   function  CyclesToMs(nCycles : Int64): Double;
 
   procedure PrintDHProfilerResults;
@@ -594,6 +596,57 @@ begin
       until bundle = nil;
     end;
   Writeln;
+end;
+
+procedure ProfilerClearResults;
+var
+  nIndex       : Integer;
+  nBundleIndex : Integer;
+  nThrIdx      : Integer;
+  prAnchor     : PProfileAnchor;
+  bundle       : PAnchorBundle;
+begin
+  for nIndex := 0 to Length(g_DHArrProcedures)-1 do
+    begin
+      if g_DHArrProcedures[nIndex] = nil then
+        continue;
+
+      prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack[0].nAddrOffset);
+
+      bundle := prAnchor.ptrNextAnchors;
+
+      repeat
+        repeat
+          prAnchor.nHitCount := 0;
+          prAnchor.nElapsedExclusive := 0;
+          prAnchor.nElapsedInclusive := 0;
+          prAnchor.nThreadID := 0;
+          prAnchor.pAddr := nil;
+
+          if bundle <> nil then
+            begin
+              if nBundleIndex < c_AnchorBundleCount then
+                begin
+                  prAnchor := @bundle.arAnchors[nBundleIndex];
+                  Inc(nBundleIndex);
+                end
+              else
+                begin
+                  bundle := bundle.ptrNext;
+                  if bundle <> nil then
+                    begin
+                      nBundleIndex := 0;
+                      prAnchor := @bundle.arAnchors[nBundleIndex];
+                    end;
+                end;
+              if bundle <> nil then
+                nThrIdx := nBundleIndex + Integer(bundle.nFirstIndex);
+            end
+          else
+            prAnchor := nil;
+        until prAnchor = nil;
+      until bundle = nil;
+    end;
 end;
 
 procedure ProfilerSerializeResults(stream : TMemoryStream; writer : TBinaryWriter; bName : Boolean);

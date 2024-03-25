@@ -110,6 +110,12 @@ begin
   state.dicProcsSent := ExeLoaderSendAllModules(pipe);
 end;
 
+procedure ProcessClearResults;
+begin
+  LogDebug('Clearing Results', []);
+  ProfilerClearResults;
+end;
+
 function WaitForCommand(pipe : THandle): TCommand;
 var
   nRead      : Cardinal;
@@ -198,6 +204,9 @@ begin
       ctInstrumetProcedures: ProcessInstrumentationCommand(cmd, @state);
       ctProfilingData:       ProcessSendResults(pipe, sendstream, sendwriter, True);
       ctProfilingDataNoName: ProcessSendResults(pipe, sendstream, sendwriter, False);
+      ctClearResults:        ProcessClearResults;
+    else
+      LogDebug('Invalid Command', []);
     end;
   until (cmd.ctType = ctEnd);
   except

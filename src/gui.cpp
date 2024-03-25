@@ -5,6 +5,7 @@
 #include <imgui.h>
 #include <stdint.h>
 #include <light_array.h>
+#include <hpa.h>
 
 #include <math.h>
 
@@ -84,6 +85,30 @@ static void text_label_left(const char* const label, char* buffer, int size, int
     ImGui::InputText(label, buffer, size);
 }
 
+static String
+unmangle_name(String name)
+{    
+    if (name.length > 3 && name.data[0] == '_' && name.data[1] == 'Z' && name.data[2] == 'N')
+    {
+        String res = { 0 };
+        const char* at = name.data + 3;
+        while (at < name.data + name.length)
+        {
+            int32_t len = hpa_parse_int32(&at);
+            if (len <= 0)
+                break;
+            if (res.length > 0)
+                res = tmp_str_concat(res, tmp_str_new_c((char*)"."));
+                        
+            res = tmp_str_concat(res, tmp_str_new_len((char*)at, len));
+            at += len;
+        }
+        return res;
+    }
+   
+    return name;
+}
+
 void
 gui_selection_window(Gui_State* gui)
 {
@@ -108,6 +133,11 @@ gui_selection_window(Gui_State* gui)
             antipessimizer_clear_anchors();
             antipessimizer_start(gui->process_filepath);
             gui->realtime_results = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear"))
+        {
+            antipessimizer_clear_results();
         }
 
         if (gui->realtime_results)
@@ -289,6 +319,8 @@ gui_results(Gui_State* gui)
 
     if (ImGui::Begin("Results Sorted"))
     {
+        char rs_buf[64] = { 0 };
+        ImGui::InputText("Filter", gui->result_filter, sizeof(gui->result_filter));
         if (ImGui::BeginTable("table_sorting", 5, flags))
         {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_NAME);
@@ -347,12 +379,32 @@ gui_results(Gui_State* gui)
                 }
 
                 ImGuiListClipper clipper;
-                clipper.Begin(array_length(prof->anchors));
+                ProfileAnchor* anchors = prof->anchors;
+
+                if (gui->result_filter[0] != 0)
+                {
+                    anchors = array_new(ProfileAnchor);
+                    for (int i = 0; i < array_length(prof->anchors); ++i)
+                    {
+                        ProfileAnchor* item = &prof->anchors[i];
+                        String unm_name = unmangle_name(item->name);
+                        if (!strstr(unm_name.data, gui->result_filter))
+                        {
+                            continue;
+                        }
+                        array_push(anchors, *item);
+                    }
+                }
+                else
+                    anchors = prof->anchors;
+                
+                clipper.Begin(array_length(anchors));
+
                 while (clipper.Step())
                 {
                     for (int row_n = clipper.DisplayStart; row_n < clipper.DisplayEnd; row_n++)
                     {
-                        ProfileAnchor* item = &prof->anchors[row_n];
+                        ProfileAnchor* item = &anchors[row_n];
                         if (max_inclusive > 0)
                         {
                             float elapsed_ms = log2f(item->elapsed_inclusive / MILLISECOND);
@@ -366,24 +418,26 @@ gui_results(Gui_State* gui)
                             color_exclusive = interpolate_color(low_color, high_color, factor);
                         }
 
+                        String unm_name = unmangle_name(item->name);
+
                         if(item->name.data)
                             ImGui::PushID(item->name.data);
                         else
                         {
                             char buf[32] = { 0 };
-                            sprintf(buf, "0xllx", item->address);
+                            sprintf(buf, "0x%llx", item->address);
                             ImGui::PushID(buf);
                         }
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
-                        if(item->name.length > 0)
-                            ImGui::Text("%s", item->name.data);
+                        if (unm_name.length > 0)
+                            ImGui::Text("%s", unm_name.data);
                         else
                             ImGui::Text("0x%llx", item->address);
                         ImGui::TableNextColumn();
-                        ImGui::TextColored(color_exclusive, "%.4f", cycles_to_ms(prof->anchors[row_n].elapsed_exclusive, cycles_per_sec));
+                        ImGui::TextColored(color_exclusive, "%.4f", cycles_to_ms(anchors[row_n].elapsed_exclusive, cycles_per_sec));
                         ImGui::TableNextColumn();
-                        ImGui::TextColored(color_inclusive, "%.4f", cycles_to_ms(prof->anchors[row_n].elapsed_inclusive, cycles_per_sec));
+                        ImGui::TextColored(color_inclusive, "%.4f", cycles_to_ms(anchors[row_n].elapsed_inclusive, cycles_per_sec));
                         ImGui::TableNextColumn();
                         ImGui::Text("%lld", item->hitcount);
                         ImGui::TableNextColumn();
@@ -395,6 +449,9 @@ gui_results(Gui_State* gui)
                         ImGui::PopID();
                     }
                 }
+
+                if (gui->result_filter[0] != 0)
+                    array_free(anchors);
             }
             ImGui::EndTable();
         }

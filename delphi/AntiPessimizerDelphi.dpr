@@ -58,6 +58,26 @@ begin
     Result := Result div 3;
 end;
 
+procedure TestIntOverflow;
+var
+  nIndex : Integer;
+  nValue : Int64;
+begin
+  nValue := 1;
+  nValue := 1;
+  nValue := 1;
+  nValue := 1;
+  nValue := 1;
+  nValue := 1;
+  nValue := 1;
+
+    For nIndex := 0 to 1000-1 do
+      begin
+        nValue := nValue * 2;
+      end;
+
+end;
+
 procedure LevelException0;
 var
   nNonsense : Integer;
@@ -67,7 +87,8 @@ begin
   Inc(nNonsense, nNonsense + 5);
   Inc(nNonsense, nNonsense + 5);
   Inc(nNonsense, nNonsense + 5);
-  RaiseException($EDFADE, 0, 0, nil);
+  //RaiseException($EDFADE, 0, 0, nil);
+  TestIntOverflow;
   //raise Exception.Create('Foo');
 end;
 
@@ -168,8 +189,8 @@ begin
   g_AntipessimizerGuiWindow := FindWindow('AntiPessimizerClass', nil);
   InstrumentModuleProcs;
 
-  TestThreads;
-  //TestFunction;
+  //TestThreads;
+  TestFunction;
   //TestRegisterCaller;
   PrintDHProfilerResults;
 end.

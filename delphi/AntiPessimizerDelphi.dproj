@@ -103,6 +103,8 @@
         <DCC_UnitSearchPath>.\jcl;.\jcl\jcl\source;.\jcl\jcl;.\jcl\jcl\source\windows;.\jcl\jcl\source\common;.\jcl\jcl\source\include;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <DCC_Define>ANTIPESSIMIZER_DELPHI;$(DCC_Define)</DCC_Define>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
+        <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
+        <DCC_RangeChecking>true</DCC_RangeChecking>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
@@ -151,8 +153,8 @@
                     <Source Name="MainSource">AntiPessimizerDelphi.dpr</Source>
                 </Source>
                 <Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k290.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
-                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp290.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dcloffice2k280.bpl">Microsoft Office 2000 Sample Automation Server Wrapper Components</Excluded_Packages>
+                    <Excluded_Packages Name="$(BDSBIN)\dclofficexp280.bpl">Microsoft Office XP Sample Automation Server Wrapper Components</Excluded_Packages>
                 </Excluded_Packages>
             </Delphi.Personality>
             <Deployment Version="4">

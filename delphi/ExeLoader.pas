@@ -28,7 +28,7 @@ type
   PEXCEPTION_POINTERS = ^EXCEPTION_POINTERS;
 
 {$Z4}
-  TCommandType = (ctEnd = 0, ctRequestProcedures = 1, ctInstrumetProcedures = 2, ctProfilingData = 3, ctProfilingDataNoName = 4);
+  TCommandType = (ctEnd = 0, ctRequestProcedures = 1, ctInstrumetProcedures = 2, ctProfilingData = 3, ctProfilingDataNoName = 4, ctClearResults = 5);
   PCommandType = ^TCommandType;
 {$Z1}
 
@@ -90,11 +90,15 @@ asm
   push r9
   push r10
   push r11
+  push rsi
+  push rdi
 
   sub rsp, 40
   call DHExitProfileBlock  // Returns the address where we need to jump back
   add rsp, 40
 
+  pop rdi
+  pop rsi
   pop r11
   pop r10
   pop r9
@@ -170,6 +174,25 @@ asm
     push r8
     push r9
     push r11
+    push rsi
+    push rdi
+    {
+    sub rsp, 224
+    movdqu [rsp + 0], xmm0
+    movdqu [rsp + 16], xmm1
+    movdqu [rsp + 32], xmm2
+    movdqu [rsp + 48], xmm3
+    movdqu [rsp + 64], xmm4
+    movdqu [rsp + 80], xmm5
+    movdqu [rsp + 96], xmm8
+    movdqu [rsp + 112], xmm9  // 128
+    movdqu [rsp + 128], xmm10 // 144
+    movdqu [rsp + 144], xmm11 // 160
+    movdqu [rsp + 160], xmm12 // 176
+    movdqu [rsp + 176], xmm13 // 192
+    movdqu [rsp + 192], xmm14 // 208
+    movdqu [rsp + 208], xmm15 // 224
+    }
 
     mov rcx, rax  // rax is the base address of the function called after executing the first 15 bytes
     sub rcx, 15   // rcx here is the base address of the called function
@@ -189,12 +212,32 @@ asm
     add rsp, 40
     pop rcx    
     }
-    
+
     sub rsp, 40
     call DHEnterProfileBlock
     add rsp, 40
 
     pop r10
+    
+    {
+    movdqu [rsp + 0], xmm0
+    movdqu [rsp + 16], xmm1
+    movdqu [rsp + 32], xmm2
+    movdqu [rsp + 48], xmm3
+    movdqu [rsp + 64], xmm4
+    movdqu [rsp + 80], xmm5
+    movdqu [rsp + 96], xmm8
+    movdqu [rsp + 112], xmm9  // 128
+    movdqu [rsp + 128], xmm10 // 144
+    movdqu [rsp + 144], xmm11 // 160
+    movdqu [rsp + 160], xmm12 // 176
+    movdqu [rsp + 176], xmm13 // 192
+    movdqu [rsp + 192], xmm14 // 208
+    movdqu [rsp + 208], xmm15 // 224
+    add rsp, 224        
+    }
+    pop rdi    
+    pop rsi
     pop r11
     pop r9
     pop r8
@@ -215,7 +258,7 @@ begin
   Result := PJclPeBorTD32Image(Pointer(NativeInt(obj) + MemberVarOffset))^;
 end;
 
-function InstrumentFunction(strName : String; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor): Boolean;
+function InstrumentFunction(strName : String; nLine : Integer; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor): Boolean;
 var
   pExecBuffer : PAnchorBuffer;
   nOldProtect : DWORD;
@@ -260,6 +303,7 @@ begin
           pAnchor.nThreadID := -1;
           pAnchor.strName := strName;
           pAnchor.pAddr := pProcAddr;
+          pAnchor.nLine := nLine;
 
           VirtualProtect(Pointer(pProcAddr), nSize, PAGE_EXECUTE_READWRITE, nOldProtect);
           // 15 bytes in total
@@ -551,7 +595,7 @@ begin
           if (nLastAddr - Uint64(pProcAddr)) >= sizeof(TProfileAnchor) then
             begin
               g_DHArrProcedures[nIndex] := pProcAddr;
-              if not InstrumentFunction(strName, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
+              if not InstrumentFunction(strName, 0, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
                 g_DHArrProcedures[nIndex] := nil;
             end
           else
@@ -702,7 +746,7 @@ begin
                   g_DHArrProcedures[nIndex] := pProcAddr;
 
                   OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + '}'));
-                  if not InstrumentFunction(strName, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
+                  if not InstrumentFunction(strName, 0, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
                     g_DHArrProcedures[nIndex] := nil;
                 end
               else
@@ -732,16 +776,16 @@ var
   nIndex : Integer;
   nStackCount : Word;
   BackTrace : array [0..128] of Pointer;
-  //locInfo : TJclLocationInfo;
+  locInfo : TJclLocationInfo;
 begin
   nStackCount := RtlCaptureStackBackTrace(0, 128, @BackTrace[0], nil);
   LogDebug('Stack count=%d', [nStackCount]);
 
   for nIndex := 0 to nStackCount-1 do
     begin
-      //locInfo := GetLocationInfo(BackTrace[nIndex]);
-      //LogDebug('[%d] %p %s:%d', [nIndex, BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
-      LogDebug('%p', [BackTrace[nIndex]]);
+      locInfo := GetLocationInfo(BackTrace[nIndex]);
+      LogDebug('[%d] %p %s:%d', [nIndex, BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
+      //LogDebug('%p', [BackTrace[nIndex]]);
     end;
   LogDebug('=== Finished dumping stack === ', []);
 end;

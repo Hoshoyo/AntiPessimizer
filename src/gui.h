@@ -6,6 +6,7 @@
 typedef struct {
 	char process_filepath[MAX_PATH];
 	char unit_filter[MAX_INPUT];
+	char result_filter[MAX_INPUT];
 
 	int  procedure_last_selected;
 	bool realtime_results;

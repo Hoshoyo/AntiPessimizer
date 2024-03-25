@@ -379,6 +379,13 @@ antipessimizer_debug_thread(LPVOID param)
 int
 antipessimizer_load_exe(const char* filepath)
 {
+    if (antip.debugging)
+    {
+        TerminateThread(antip.debugged_thread, 0);
+        antipessimizer_stop();
+        CloseHandle(antip.pipe);
+    }
+
     antip.pipe = CreateNamedPipeA("\\\\.\\pipe\\AntiPessimizerPipe", PIPE_ACCESS_DUPLEX, PIPE_NOWAIT, PIPE_UNLIMITED_INSTANCES,
         64 * MEGABYTE, 64 * MEGABYTE, 0, 0);
     if (antip.pipe == INVALID_HANDLE_VALUE)
@@ -387,6 +394,7 @@ antipessimizer_load_exe(const char* filepath)
     antip.debugged_thread = CreateThread(0, 0, antipessimizer_debug_thread, (LPVOID)filepath, 0, &antip.dbg_thread_id);
     if (antip.debugged_thread == INVALID_HANDLE_VALUE)
         return -1;
+
     return 0;
 }
 
@@ -485,8 +493,22 @@ antipessimizer_init()
 }
 
 int
+antipessimizer_clear_results()
+{
+    if (!(antip.started && antip.running))
+        return 0;
+
+    DWORD written = 0;
+    DebugRequest dr = { sizeof(DebugRequest) - sizeof(uint32_t), ctClearResults };
+    WriteFile(antip.pipe, &dr, sizeof(dr), &written, 0);
+}
+
+int
 antipessimizer_start(const char* filepath)
 {
+    if (antip.started && antip.running)
+        return 0;
+
     char* at = (char*)antip.send_buffer;
     uint32_t* size = (uint32_t*)at;
     at += sizeof(uint32_t);
@@ -504,9 +526,8 @@ antipessimizer_start(const char* filepath)
                 for (int k = array_length(em->procedures) - 1; k >= 0; --k)
                 {
                     InstrumentedProcedure* ip = em->procedures + k;
-                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name) && 
+                    if (!string_has_prefix_char((char*)"System.", ip->demangled_name) &&
                         !string_has_prefix_char((char*)"Winapi.", ip->demangled_name) &&
-                        !string_has_prefix_char((char*)"Overbyte", ip->demangled_name) && 
                         !string_has_prefix_char((char*)"Jcl", ip->demangled_name))
                     {
                         array_push(instrumented, em->procedures[k]);
@@ -516,7 +537,7 @@ antipessimizer_start(const char* filepath)
                         array_remove(em->procedures, k);
                     }
                 }
-            }            
+            }
         }
 
         int proc_count = array_length(instrumented);
@@ -524,7 +545,7 @@ antipessimizer_start(const char* filepath)
         *(int*)at = proc_count;
         at += sizeof(int);
 
-        for (int k = proc_count-1; k >= 0; --k)
+        for (int k = proc_count - 1; k >= 0; --k)
         {
             InstrumentedProcedure* ip = instrumented + k;
             int len = write_7bit_encoded_int(ip->name.length, at);
@@ -667,7 +688,8 @@ process_profiling_result(uint8_t* msg, int size, bool has_name)
             anchor.hitcount = *(uint64_t*)at;
             at += sizeof(uint64_t);
 
-            array_push(antip.prof_results.anchors, anchor);
+            if((int64_t)anchor.elapsed_exclusive > 0 && (int64_t)anchor.elapsed_inclusive > 0)
+                array_push(antip.prof_results.anchors, anchor);
         }
 
         read_bytes -= (at - start);

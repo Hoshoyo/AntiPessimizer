@@ -1,5 +1,7 @@
 #pragma once
+extern "C" {
 #include "string_utils.h"
+}
 
 #define EXE_MODULE_SELECTED (1 << 0)
 
@@ -33,6 +35,7 @@ typedef enum {
     ctInstrumetProcedures = 2, 
     ctProfilingData = 3,
     ctProfilingDataNoName = 4,
+    ctClearResults = 5,
 } PipeMessage;
 
 typedef struct {
@@ -56,6 +59,7 @@ void  antipessimizer_request_result();
 void* antipessimizer_read_pipe_message();
 int   antipessimizer_stop();
 void  antipessimizer_clear();
+int   antipessimizer_clear_results();
 void  antipessimizer_clear_anchors();
 ProfilingResults* antipessimizer_get_profiling_results();
 String antipessimizer_get_thread_name(uint32_t id);
