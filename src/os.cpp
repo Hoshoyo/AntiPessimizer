@@ -116,3 +116,11 @@ void* os_file_read(const char* in_filename, int64_t* out_size)
 	}
 	return 0;
 }
+
+bool os_file_exists(char* filepath)
+{
+	DWORD dwAttrib = GetFileAttributesA(filepath);
+
+	return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+		!(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}

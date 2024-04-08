@@ -1316,7 +1316,9 @@ end;
 
 function LoadUdis: Boolean;
 begin
-  hUdis := LoadLibrary('..\..\lib\udis86\libudis86.dll');
+  hUdis := LoadLibrary('libudis86.dll');
+  if hUdis = 0 then
+    hUdis := LoadLibrary('..\..\lib\udis86\libudis86.dll');
   if hUdis = 0 then
     hUdis := LoadLibrary('lib\udis86\libudis86.dll');
 

@@ -28,3 +28,4 @@ uint32_t os_file_write(const char* filename, void* mem, uint32_t size);
 uint32_t os_file_append(const char* filename, void* mem, uint32_t size);
 void os_datetime(OS_Datetime* systime);
 void* os_file_read(const char* in_filename, int64_t* out_size);
+bool os_file_exists(char* filepath);

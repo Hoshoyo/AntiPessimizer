@@ -69,6 +69,11 @@ void injectcode(Antipessimizer* antip)
         char antip_path[MAX_PATH] = { 0 };
         DWORD namelen = GetFullPathNameA(".\\Win64\\Debug\\AntiPessimizerDLL.dll", sizeof(antip_path), antip_path, 0);
 
+        if (!os_file_exists(antip_path))
+        {
+            namelen = GetFullPathNameA(".\\AntiPessimizerDLL.dll", sizeof(antip_path), antip_path, 0);
+        }
+
         SIZE_T written = 0;
 
         char code[] = {
