@@ -62,6 +62,8 @@ int main(int, char**)
     wstring_init_globals();
     string_init_globals();
 
+    DragAcceptFiles(hwnd, TRUE);
+
     // Main loop
     bool done = false;
     while (!done)
@@ -228,6 +230,18 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             SetWindowPos(hWnd, nullptr, suggested_rect->left, suggested_rect->top, suggested_rect->right - suggested_rect->left, suggested_rect->bottom - suggested_rect->top, SWP_NOZORDER | SWP_NOACTIVATE);
         }
         break;
+    case WM_DROPFILES: {
+        extern void antipessimizer_load_results(const char* filename);
+        
+        char buffer[MAX_PATH] = { 0 };
+        HDROP hDrop = (HDROP)wParam;
+        UINT ret = DragQueryFileA(hDrop, 0, buffer, MAX_PATH);
+        POINT mouse_loc;
+        DragQueryPoint(hDrop, &mouse_loc);
+        DragFinish(hDrop);
+        
+        antipessimizer_load_results(buffer);
+    } break;
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }

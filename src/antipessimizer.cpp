@@ -8,6 +8,7 @@
 #include <light_array.h>
 #define HPA_IMPLEMENTATION
 #include <hpa.h>
+#include "os.h"
 
 #define MAX(A, B) (((A) > (B)) ? (A) : (B))
 #define MIN(A, B) (((A) < (B)) ? (A) : (B))
@@ -16,6 +17,7 @@ extern "C" {
 #define UNICODE_CONVERT_IMPLEMENTATION
 #include "unicode.h"
 #include "string_utils.h"
+#include <light_arena.h>
 }
 
 #include "antipessimizer.h"
@@ -503,6 +505,103 @@ antipessimizer_clear_results()
     WriteFile(antip.pipe, &dr, sizeof(dr), &written, 0);
 }
 
+typedef struct {
+    int64_t count;
+    int64_t cycle_count;
+} AntipFileHeader;
+
+void
+antipessimizer_save_results()
+{
+    ProfilingResults* prof = antipessimizer_get_profiling_results();
+
+    if (!prof->anchors)
+        return;
+
+    Light_Arena* str_arena = arena_create(1024 * 1024);
+    char* str_arena_start = (char*)str_arena->ptr;
+
+    ProfileAnchor* anchors = array_new(ProfileAnchor);
+
+    for (int i = 0; i < array_length(prof->anchors); ++i)
+    {
+        ProfileAnchor* anchor = prof->anchors + i;
+
+        int64_t* len = (int64_t*)arena_alloc(str_arena, sizeof(anchor->name.length));
+        *len = anchor->name.length;
+
+        char* name = (char*)arena_alloc(str_arena, anchor->name.length);
+        memcpy(name, anchor->name.data, anchor->name.length);
+
+        ProfileAnchor copy = *anchor;
+        copy.name.data = (char*)(name - str_arena_start);
+
+        array_push(anchors, copy);
+    }
+
+    OS_Datetime systime = { 0 };
+    os_datetime(&systime);
+    char filename[256] = { 0 };
+    sprintf(filename, "%04d_%02d_%02d_%02d_%02d_%02d_run.antipessimizer",
+        systime.year,
+        systime.month,
+        systime.day,
+        systime.hour,
+        systime.minute,
+        systime.second);
+
+    AntipFileHeader header = {
+        array_length(anchors),
+        prof->cycles_per_second
+    };
+
+    os_file_write(filename, &header, sizeof(header));
+    
+    os_file_append(filename, anchors, array_length(anchors) * sizeof(*anchors));
+    os_file_append(filename, str_arena_start, (char*)str_arena->ptr - str_arena_start);
+
+    arena_free(str_arena);
+    array_free(anchors);
+}
+
+void
+antipessimizer_load_results(const char* filename)
+{
+    ProfilingResults* prof = antipessimizer_get_profiling_results();
+
+    int64_t filesize = 0;
+    void* data = os_file_read(filename, &filesize);
+
+    if (!data)
+        return;
+
+    if (!prof->anchors)
+        prof->anchors = array_new(ProfileAnchor);
+    
+    array_clear(prof->anchors);
+
+    char* at = (char*)data;
+
+    int64_t count = *(int64_t*)at;
+    at += sizeof(int64_t);
+    prof->cycles_per_second = *(uint64_t*)at;
+    at += sizeof(uint64_t);
+
+    array_allocate(prof->anchors, count);
+    array_length(prof->anchors) = count;
+    memcpy(prof->anchors, at, count * sizeof(ProfileAnchor));    
+    at += count * sizeof(ProfileAnchor);
+
+    for (int64_t i = 0; i < count; ++i)
+    {
+        int64_t len = *(int64_t*)at;
+        at += sizeof(int64_t);
+        String name = ustr_new_len_c((char*)at, len);
+        at += len;
+        prof->anchors[i].name = name;
+    }
+}
+
 int
 antipessimizer_start(const char* filepath)
 {
@@ -701,11 +800,14 @@ cannot_read:
 String
 antipessimizer_get_thread_name(uint32_t id)
 {
-    for (int i = 0; i < array_length(antip.remote_threads); ++i)
+    if (antip.remote_threads)
     {
-        if (antip.remote_threads[i].id == id)
+        for (int i = 0; i < array_length(antip.remote_threads); ++i)
         {
-            return antip.remote_threads[i].debug_name;
+            if (antip.remote_threads[i].id == id)
+            {
+                return antip.remote_threads[i].debug_name;
+            }
         }
     }
     return {};

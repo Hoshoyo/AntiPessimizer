@@ -135,9 +135,10 @@ gui_selection_window(Gui_State* gui)
             gui->realtime_results = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("Clear"))
+        if (ImGui::Button("Save"))
         {
-            antipessimizer_clear_results();
+            //antipessimizer_clear_results();
+            antipessimizer_save_results();
         }
 
         if (gui->realtime_results)
