@@ -516,13 +516,13 @@ gui_results(Gui_State* gui)
                     for (int row_n = clipper.DisplayStart; row_n < clipper.DisplayEnd; row_n++)
                     {
                         ProfileAnchor* item = &anchors[row_n];
-                        if (max_inclusive > 0)
+                        if (max_inclusive > 0 && (max_inclusive - min_inclusive > 0))
                         {
                             float elapsed_ms = log2f(item->elapsed_inclusive / MILLISECOND);
                             float factor = (elapsed_ms - min_inclusive) / (max_inclusive - min_inclusive);
                             color_inclusive = interpolate_color(low_color, high_color, factor);
                         }
-                        if (max_exclusive > 0)
+                        if (max_exclusive > 0 && (max_exclusive - min_exclusive > 0))
                         {
                             float elapsed_ms = log2f(item->elapsed_exclusive / MILLISECOND);
                             float factor = (elapsed_ms - min_exclusive) / (max_exclusive - min_exclusive);
