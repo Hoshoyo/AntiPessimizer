@@ -260,7 +260,9 @@ gui_selection_window(Gui_State* gui)
 typedef enum {
     RESULT_COL_NAME,
     RESULT_COL_ELAPSED_INCLUSIVE,
+    RESULT_COL_INCLUSIVE_AVERAGE,
     RESULT_COL_ELAPSED_EXCLUSIVE,
+    RESULT_COL_EXCLUSIVE_AVERAGE,
     RESULT_COL_HITCOUNT,
     RESULT_COL_THREAD_ID,
 } Result_ColumnID;
@@ -304,6 +306,46 @@ compare_anchor_elapsed_exclusive(const void* lhs, const void* rhs)
 }
 
 static int
+compare_anchor_average_exclusive(const void* lhs, const void* rhs)
+{
+    ProfileAnchor* left = (ProfileAnchor*)lhs;
+    ProfileAnchor* right = (ProfileAnchor*)rhs;
+
+    if (left->hitcount == 0 || right->hitcount == 0)
+    {
+        return compare_anchor_elapsed_exclusive(lhs, rhs);
+    }
+
+    int64_t res = (int64_t)left->elapsed_exclusive / (double)left->hitcount - (int64_t)right->elapsed_exclusive / (double)right->hitcount;
+    int sign = (int)(-((int64_t)(((uint64_t)res >> 63) * 2) - 1));
+
+    if (res != 0)
+        return sort_algo_direction * sign;
+    else if (left->name.data && right->name.data)
+        return strncmp(left->name.data, right->name.data, left->name.length) * sort_algo_direction;
+}
+
+static int
+compare_anchor_average_inclusive(const void* lhs, const void* rhs)
+{
+    ProfileAnchor* left = (ProfileAnchor*)lhs;
+    ProfileAnchor* right = (ProfileAnchor*)rhs;
+
+    if (left->hitcount == 0 || right->hitcount == 0)
+    {
+        return compare_anchor_elapsed_inclusive(lhs, rhs);
+    }
+
+    int64_t res = (int64_t)left->elapsed_inclusive / (double)left->hitcount - (int64_t)right->elapsed_inclusive / (double)right->hitcount;
+    int sign = (int)(-((int64_t)(((uint64_t)res >> 63) * 2) - 1));
+
+    if (res != 0)
+        return sort_algo_direction * sign;
+    else if (left->name.data && right->name.data)
+        return strncmp(left->name.data, right->name.data, left->name.length) * sort_algo_direction;
+}
+
+static int
 compare_anchor_hitcount(const void* lhs, const void* rhs)
 {
     ProfileAnchor* left = (ProfileAnchor*)lhs;
@@ -323,7 +365,9 @@ typedef int sort_algo_t(const void*, const void*);
 static sort_algo_t* sort_algorithms[] = {
     compare_anchor_name,
     compare_anchor_elapsed_inclusive,
+    compare_anchor_average_inclusive,
     compare_anchor_elapsed_exclusive,
+    compare_anchor_average_exclusive,
     compare_anchor_hitcount,
 };
 
@@ -342,11 +386,13 @@ gui_results(Gui_State* gui)
     {
         char rs_buf[64] = { 0 };
         ImGui::InputText("Filter", gui->result_filter, sizeof(gui->result_filter));
-        if (ImGui::BeginTable("table_sorting", 5, flags))
+        if (ImGui::BeginTable("table_sorting", 7, flags))
         {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_NAME);
             ImGui::TableSetupColumn("Elapsed exclusive", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_ELAPSED_EXCLUSIVE);
+            ImGui::TableSetupColumn("Average exclusive", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_EXCLUSIVE_AVERAGE);
             ImGui::TableSetupColumn("Elapsed inclusive", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_ELAPSED_INCLUSIVE);
+            ImGui::TableSetupColumn("Average inclusive", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_INCLUSIVE_AVERAGE);
             ImGui::TableSetupColumn("Hit count", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_HITCOUNT);
             ImGui::TableSetupColumn("Thread ID", ImGuiTableColumnFlags_NoSort, 0.0f, RESULT_COL_THREAD_ID);
             ImGui::TableSetupScrollFreeze(0, 1); // Make row always visible
@@ -362,10 +408,16 @@ gui_results(Gui_State* gui)
                 ImVec4 high_color = { 1, 0, 0, 1 };
                 ImVec4 color_inclusive = { 0.7f, 0.7f, 0.7f, 1 };
                 ImVec4 color_exclusive = { 0.7f, 0.7f, 0.7f, 1 };
+                ImVec4 color_avg_inclusive = { 0.7f, 0.7f, 0.7f, 1 };
+                ImVec4 color_avg_exclusive = { 0.7f, 0.7f, 0.7f, 1 };
                 float max_inclusive = 0;
                 float min_inclusive = 0;
                 float max_exclusive = 0;
                 float min_exclusive = 0;
+                float max_avg_inclusive = 0;
+                float min_avg_inclusive = 0;
+                float max_avg_exclusive = 0;
+                float min_avg_exclusive = 0;
 
                 if (sort_specs->SpecsCount > 0)
                 {
@@ -385,16 +437,30 @@ gui_results(Gui_State* gui)
                             min_inclusive = log2f(prof->anchors[array_length(prof->anchors)-1].elapsed_inclusive / MILLISECOND);
                         }
 
+                        if (uid == RESULT_COL_INCLUSIVE_AVERAGE && prof->anchors[0].hitcount > 0)
+                        {
+                            max_avg_inclusive = log2f(prof->anchors[0].elapsed_inclusive / prof->anchors[0].hitcount);
+                            min_avg_inclusive = log2f(prof->anchors[array_length(prof->anchors) - 1].elapsed_inclusive / (double)prof->anchors[0].hitcount);
+                        }
+
                         if (uid == RESULT_COL_ELAPSED_EXCLUSIVE)
                         {
                             max_exclusive = log2f(prof->anchors[0].elapsed_exclusive / MILLISECOND);
                             min_exclusive = log2f(prof->anchors[array_length(prof->anchors) - 1].elapsed_exclusive / MILLISECOND);
                         }
 
+                        if (uid == RESULT_COL_EXCLUSIVE_AVERAGE && prof->anchors[0].hitcount > 0)
+                        {
+                            max_avg_exclusive = log2f(prof->anchors[0].elapsed_exclusive / prof->anchors[0].hitcount);
+                            min_avg_exclusive = log2f(prof->anchors[array_length(prof->anchors) - 1].elapsed_exclusive / (double)prof->anchors[0].hitcount);
+                        }
+
                         if (sort_algo_direction == 1)
                         {
                             SWAP_FLOAT(max_inclusive, min_inclusive);
                             SWAP_FLOAT(max_exclusive, min_exclusive);
+                            SWAP_FLOAT(max_avg_inclusive, min_avg_inclusive);
+                            SWAP_FLOAT(max_avg_exclusive, min_avg_exclusive);
                         }
                     }
                 }
@@ -438,6 +504,18 @@ gui_results(Gui_State* gui)
                             float factor = (elapsed_ms - min_exclusive) / (max_exclusive - min_exclusive);
                             color_exclusive = interpolate_color(low_color, high_color, factor);
                         }
+                        if (max_avg_exclusive > 0 && item->hitcount > 0)
+                        {
+                            float elapsed_ms = log2f(item->elapsed_exclusive / (double)item->hitcount);
+                            float factor = (elapsed_ms - min_avg_exclusive) / (max_avg_exclusive - min_avg_exclusive);
+                            color_avg_exclusive = interpolate_color(low_color, high_color, factor);
+                        }
+                        if (max_avg_inclusive > 0 && item->hitcount > 0)
+                        {
+                            float elapsed_ms = log2f(item->elapsed_inclusive / (double)item->hitcount);
+                            float factor = (elapsed_ms - min_avg_inclusive) / (max_avg_inclusive - min_avg_inclusive);
+                            color_avg_inclusive = interpolate_color(low_color, high_color, factor);
+                        }
 
                         String unm_name = unmangle_name(item->name);
 
@@ -456,10 +534,23 @@ gui_results(Gui_State* gui)
                         else
                             ImGui::Text("0x%llx", item->address);
                         ImGui::TableNextColumn();
+
                         ImGui::TextColored(color_exclusive, "%.4f", cycles_to_ms(anchors[row_n].elapsed_exclusive, cycles_per_sec));
                         ImGui::TableNextColumn();
+                        double average_exclusive = 0.0;
+                        if(anchors[row_n].hitcount > 0)
+                            average_exclusive = cycles_to_ms(anchors[row_n].elapsed_exclusive, cycles_per_sec) / anchors[row_n].hitcount;
+                        ImGui::TextColored(color_avg_exclusive, "%.4f", average_exclusive);
+                        ImGui::TableNextColumn();
+                        
                         ImGui::TextColored(color_inclusive, "%.4f", cycles_to_ms(anchors[row_n].elapsed_inclusive, cycles_per_sec));
                         ImGui::TableNextColumn();
+                        double average_inclusive = 0.0;
+                        if (anchors[row_n].hitcount > 0)
+                            average_inclusive = cycles_to_ms(anchors[row_n].elapsed_inclusive, cycles_per_sec) / anchors[row_n].hitcount;
+                        ImGui::TextColored(color_avg_inclusive, "%.4f", average_inclusive);
+                        ImGui::TableNextColumn();
+
                         ImGui::Text("%lld", item->hitcount);
                         ImGui::TableNextColumn();
                         String thread_name = antipessimizer_get_thread_name(item->thread_id);
