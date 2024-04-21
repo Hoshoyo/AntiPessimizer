@@ -592,8 +592,22 @@ var
   nThrIdx      : Integer;
   prAnchor     : PProfileAnchor;
   bundle       : PAnchorBundle;
+  nAtIdx       : Integer;
+  pBlock       : PDHProfileBlock;
 begin
-  LogDebug('proc count %d', [Length(g_DHArrProcedures)]);
+  LogDebug('Clearing %d anchors', [Length(g_DHArrProcedures)]);
+
+  for nThrIdx := 0 to Length(g_DHProfileStack)-1 do
+    begin
+      nAtIdx := g_DHProfileStack[nThrIdx].nAtIndex;
+      for nIndex := nAtIdx downto 0 do
+        begin
+          pBlock := @g_DHProfileStack[nThrIdx].pbBlocks[nIndex];
+          pBlock.nPrevTimeInclusive := 0;
+          pBlock.nStartTime := ReadTimeStamp;
+        end;
+    end;
+
   for nIndex := 0 to Length(g_DHArrProcedures)-1 do
     begin
       if g_DHArrProcedures[nIndex] = nil then
@@ -601,11 +615,13 @@ begin
 
       prAnchor := PProfileAnchor(PByte(g_DHArrProcedures[nIndex]) + g_DHProfileStack[0].nAddrOffset);
 
+      nBundleIndex := 0;
+      nThrIdx := 0;
+
       bundle := prAnchor.ptrNextAnchors;
 
       repeat
         repeat
-          LogDebug('Clear %s %d', [prAnchor.strName, prAnchor.nElapsedExclusive]);
           prAnchor.nHitCount := 0;
           prAnchor.nElapsedExclusive := 0;
           prAnchor.nElapsedInclusive := 0;
