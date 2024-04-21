@@ -16,3 +16,4 @@ typedef struct {
 
 void gui_render(Gui_State* gui);
 void gui_init(Gui_State* gui);
+void gui_save_config(Gui_State* gui);

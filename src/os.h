@@ -9,6 +9,7 @@
 
 #define MIN(A, B) (((A) < (B)) ? (A) : (B))
 #define MAX(A, B) (((A) > (B)) ? (A) : (B))
+#define ARRAY_LENGTH(A) (sizeof(A) / sizeof(*(A)))
 
 typedef struct {
 	uint16_t year;

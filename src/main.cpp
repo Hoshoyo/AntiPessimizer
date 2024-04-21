@@ -112,6 +112,8 @@ int main(int, char**)
         g_pSwapChain->Present(1, 0); // Present with vsync       
     }
 
+    gui_save_config(&gui);
+
     // Cleanup
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

@@ -615,6 +615,45 @@ gui_results(Gui_State* gui)
 }
 
 void
+gui_load_config(Gui_State* gui)
+{
+    int64_t fsize = 0;
+    char* data = (char*)os_file_read("antipessimizer.config", &fsize);
+    if (data)
+    {        
+        const char* at = data;
+        hpa_parse_keyword(&at, "Filepath:");
+        hpa_parse_whitespace(&at);
+        at++;
+        int i = 0;
+        while (*at != '\'' && i < ARRAY_LENGTH(gui->process_filepath))
+            gui->process_filepath[i++] = *at++;
+        at++;
+        hpa_parse_whitespace(&at);
+
+        hpa_parse_keyword(&at, "ResultFilter:");
+        hpa_parse_whitespace(&at);
+        at++;
+        i = 0;
+        while (*at != '\'' && i < ARRAY_LENGTH(gui->result_filter))
+            gui->result_filter[i++] = *at++;
+        at++;
+        hpa_parse_whitespace(&at);
+
+        hpa_parse_keyword(&at, "UnitFilter:");
+        hpa_parse_whitespace(&at);
+        at++;
+        i = 0;
+        while (*at != '\'' && i < ARRAY_LENGTH(gui->unit_filter))
+            gui->unit_filter[i++] = *at++;
+        at++;
+        hpa_parse_whitespace(&at);
+    }
+    else
+        printf("Config file not found\n");
+}
+
+void
 gui_init(Gui_State* gui)
 {
     gui->procedure_last_selected = -1;
@@ -622,6 +661,7 @@ gui_init(Gui_State* gui)
     gui->process_filepath[0] = 0;
     gui->unit_filter[0] = 0;
     gui->realtime_results = false;
+    gui_load_config(gui);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -657,4 +697,14 @@ gui_render(Gui_State* gui)
     ImGui::Render();
 
     tmp_wstr_clear_arena();
+}
+
+void
+gui_save_config(Gui_State* gui)
+{
+    FILE* config = fopen("antipessimizer.config", "wb");
+    fprintf(config, "Filepath: '%s'\n", gui->process_filepath);
+    fprintf(config, "ResultFilter: '%s'\n", gui->result_filter);
+    fprintf(config, "UnitFilter: '%s'\n", gui->unit_filter);
+    fclose(config);
 }
