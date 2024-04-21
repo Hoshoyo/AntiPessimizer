@@ -386,6 +386,9 @@ gui_results(Gui_State* gui)
     {
         char rs_buf[64] = { 0 };
         ImGui::InputText("Filter", gui->result_filter, sizeof(gui->result_filter));
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Thread Filter"))
+            gui->selected_thread_id = -1;
         if (ImGui::BeginTable("table_sorting", 7, flags))
         {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_NAME);
@@ -468,8 +471,12 @@ gui_results(Gui_State* gui)
                 ImGuiListClipper clipper;
                 ProfileAnchor* anchors = prof->anchors;
 
+                bool has_filter = false;
+
+                // Filter depending on the filter textbox by string
                 if (gui->result_filter[0] != 0)
                 {
+                    has_filter = true;
                     anchors = array_new(ProfileAnchor);
                     for (int i = 0; i < array_length(prof->anchors); ++i)
                     {
@@ -482,7 +489,24 @@ gui_results(Gui_State* gui)
                         array_push(anchors, *item);
                     }
                 }
-                else
+
+                // Filter depending on ThreadID
+                if (gui->selected_thread_id != -1)
+                {
+                    if(!has_filter)
+                        anchors = array_new(ProfileAnchor);
+                    has_filter = true;
+                    for (int i = 0; i < array_length(prof->anchors); ++i)
+                    {
+                        ProfileAnchor* item = &prof->anchors[i];
+                        if (item->thread_id != gui->selected_thread_id)
+                        {
+                            continue;
+                        }
+                        array_push(anchors, *item);
+                    }
+                }
+                if(!has_filter)
                     anchors = prof->anchors;
                 
                 clipper.Begin(array_length(anchors));
@@ -554,15 +578,34 @@ gui_results(Gui_State* gui)
                         ImGui::Text("%lld", item->hitcount);
                         ImGui::TableNextColumn();
                         String thread_name = antipessimizer_get_thread_name(item->thread_id);
-                        if(thread_name.length > 0)
-                            ImGui::Text("%s", thread_name.data);
+                        bool selected = gui->selected_thread_id == item->thread_id;
+                        if (thread_name.length > 0)
+                        {
+                            if (ImGui::Selectable(thread_name.data, &selected, ImGuiSelectableFlags_None))
+                            {
+                                if (selected)
+                                    gui->selected_thread_id = item->thread_id;
+                                else
+                                    gui->selected_thread_id = -1;
+                            }
+                        }
                         else
-                            ImGui::Text("%d", item->thread_id);
+                        {
+                            char bf[32] = { 0 };
+                            sprintf(bf, "%d", item->thread_id);
+                            ImGui::Selectable(bf, &selected, ImGuiSelectableFlags_None);
+                            {
+                                if (selected)
+                                    gui->selected_thread_id = item->thread_id;
+                                else
+                                    gui->selected_thread_id = -1;
+                            }
+                        }                        
                         ImGui::PopID();
                     }
                 }
 
-                if (gui->result_filter[0] != 0)
+                if (has_filter)
                     array_free(anchors);
             }
             ImGui::EndTable();
@@ -575,6 +618,7 @@ void
 gui_init(Gui_State* gui)
 {
     gui->procedure_last_selected = -1;
+    gui->selected_thread_id = -1;
     gui->process_filepath[0] = 0;
     gui->unit_filter[0] = 0;
     gui->realtime_results = false;

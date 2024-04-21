@@ -10,6 +10,8 @@ typedef struct {
 
 	int  procedure_last_selected;
 	bool realtime_results;
+
+	int32_t selected_thread_id;
 } Gui_State;
 
 void gui_render(Gui_State* gui);
