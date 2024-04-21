@@ -137,8 +137,22 @@ gui_selection_window(Gui_State* gui)
         ImGui::SameLine();
         if (ImGui::Button("Save"))
         {
-            //antipessimizer_clear_results();
             antipessimizer_save_results();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear"))
+        {
+            antipessimizer_clear_results();
+        }
+
+        if (ImGui::Button("RT"))
+        {
+            gui->realtime_results = !gui->realtime_results;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Result"))
+        {
+            antipessimizer_request_result();
         }
 
         if (gui->realtime_results)
@@ -500,4 +514,6 @@ gui_render(Gui_State* gui)
     }
 
     ImGui::Render();
+
+    tmp_wstr_clear_arena();
 }

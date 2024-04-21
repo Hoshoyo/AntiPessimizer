@@ -443,6 +443,8 @@ void
 tmp_wstr_clear_arena()
 {
 	arena_clear(tmp_string_arena);
+	hoht_clear(&tmp_normal_string_table);
+	//hoht_new(&tmp_normal_string_table, 1024 * 16, sizeof(Wstring), 0.5f, allocate, free);
 }
 
 
@@ -844,19 +846,19 @@ String
 ustr_new_c(char* str)
 {
 	size_t len = strlen(str);
-	wchar_t* res = arena_alloc(string_arena, (len + 1) * sizeof(char));
+	wchar_t* res = arena_alloc(tmp_string_arena, (len + 1) * sizeof(char));
 	memcpy(res, str, len);
 	res[len] = 0;
-	String result = unique_string_new_length(&normal_string_table, string_arena, res, len, 1);
+	String result = unique_string_new_length(&normal_string_table, string_arena, res, len, 0);
 	return result;
 }
 
 String
 ustr_new_len_c(char* str, int64_t len)
 {
-	wchar_t* res = arena_alloc(string_arena, (len + 1) * sizeof(char));
+	wchar_t* res = arena_alloc(tmp_string_arena, (len + 1) * sizeof(char));
 	memcpy(res, str, len);
 	res[len] = 0;
-	String result = unique_string_new_length(&normal_string_table, string_arena, res, len, 1);
+	String result = unique_string_new_length(&normal_string_table, string_arena, res, len, 0);
 	return result;
 }

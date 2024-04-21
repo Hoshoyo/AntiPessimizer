@@ -126,6 +126,8 @@ int hoht_delete(Hoht_Table* table, const char* key);
 int hoht_delete_length(Hoht_Table* table, const char* key, int key_length);
 int hoht_delete_hashed(Hoht_Table* table, __m128i hash);
 
+void hoht_clear(Hoht_Table* table);
+
 /*  hoht_serialize
     serializes the hash table in a file with given filename */
 int hoht_serialize(const char* filename, Hoht_Table* table);
@@ -202,6 +204,27 @@ hoht_free(Hoht_Table* table) {
     }
     table->freer(table->entries);
     return 0;
+}
+
+void
+hoht_clear(Hoht_Table* table)
+{
+    for (int i = 0; i < table->capacity; ++i) {
+        Hoht_Table_Entry* entry_ptr = (Hoht_Table_Entry*)((char*)table->entries + (sizeof(Hoht_Table_Entry) + table->entry_size_bytes) * i);
+        if (entry_ptr->flags & HASH_TABLE_OCCUPIED) {
+            Hoht_Table_Entry* entry = entry_ptr->next;
+            while (entry) {
+                Hoht_Table_Entry* prev = entry;
+                entry = entry->next;
+                table->freer(prev);
+            }
+        }
+        entry_ptr->next = 0;
+        entry_ptr->flags = 0;
+        entry_ptr->hash.m128i_u64[0] = 0;
+        entry_ptr->hash.m128i_u64[1] = 0;
+    }
+    table->entry_count = 0;
 }
 
 int

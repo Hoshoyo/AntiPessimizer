@@ -38,17 +38,6 @@ type
     ptrNext     : PAnchorBundle;
   end;
 
-  TProfileBlock = record
-    nParentIndex       : Integer;
-    nAnchorIndex       : Integer;
-    nSecondIndex       : Integer;
-    nParentSecondIndex : Integer;
-    nStartTime         : Uint64;
-    nPrevTimeInclusive : Uint64;
-    ptrReturnTarget    : Pointer;
-  end;
-  PProfileBlock = ^TProfileBlock;
-
   // Direct hashing
   TDHProfileBlock = record
     pParentAnchor      : PProfileAnchor;
@@ -89,12 +78,9 @@ type
   procedure PrintDHProfilerResults;
 
 var
-  EpilogueJump : Pointer; // TODO(psv): Make it Thread safe
   g_DHArrProcedures  : array of Pointer;
   g_Pipe : THandle;
-  g_ThreadID : Integer = 0;
   g_ThreadTranslateT : array [0..1024*1024-1] of TThrTranslate; // ThreadID translation table (supports 1 million threads)
-  g_CriticalSectionAnchorAllocation : TCriticalSection;
   g_AntipessimizerGuiWindow : HWND;
 
 implementation
@@ -138,6 +124,7 @@ type
   end;                                      // 80 $50
 {$ENDIF}
 
+{$OVERFLOWCHECKS OFF}
 
 procedure InitializeDHProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
 var
@@ -606,6 +593,7 @@ var
   prAnchor     : PProfileAnchor;
   bundle       : PAnchorBundle;
 begin
+  LogDebug('proc count %d', [Length(g_DHArrProcedures)]);
   for nIndex := 0 to Length(g_DHArrProcedures)-1 do
     begin
       if g_DHArrProcedures[nIndex] = nil then
@@ -617,11 +605,12 @@ begin
 
       repeat
         repeat
+          LogDebug('Clear %s %d', [prAnchor.strName, prAnchor.nElapsedExclusive]);
           prAnchor.nHitCount := 0;
           prAnchor.nElapsedExclusive := 0;
           prAnchor.nElapsedInclusive := 0;
-          prAnchor.nThreadID := 0;
-          prAnchor.pAddr := nil;
+          //prAnchor.nThreadID := -1;
+          //prAnchor.pAddr := nil;
 
           if bundle <> nil then
             begin
@@ -683,6 +672,7 @@ begin
           if prAnchor.nHitCount > 0 then
             begin
               Inc(nCount);
+
               if bName  then
                 writer.Write(prAnchor.strName);
 
@@ -719,6 +709,8 @@ begin
     end;
 
   PCardinal(PByte(stream.Memory) + nStartPos)^ := nCount;
+
+  //LogDebug('Stream size=%d %d', [PInteger(PByte(stream.Memory))^, PCardinal(PByte(stream.Memory) + nStartPos)^]);
   except
     on E: Exception do
       begin

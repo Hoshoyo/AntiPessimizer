@@ -46,6 +46,7 @@ struct Antipessimizer {
     Light_Arena* recv_buffer = 0;
 
     DWORD remote_thread_id = 0;
+    DWORD remote_worker_id = 0;
 
     void* loadlibaddr = 0;
     void* sleeplibaddr = 0;
@@ -277,6 +278,8 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                 hpa_parse_whitespace(&at);
                 int rem_worker_id = hpa_parse_int32(&at);
 
+                antip->remote_worker_id = (DWORD)rem_worker_id;
+
                 for (int i = 0; i < array_length(antip->suspended_threads); ++i) {
                     if(antip->suspended_threads[i].id == rem_worker_id)
                         ResumeThread(antip->suspended_threads[i].handle);
@@ -504,6 +507,16 @@ antipessimizer_clear_results()
 {
     if (!(antip.started && antip.running))
         return 0;
+
+    // Suspend all threads but the worker thread so we can clear everything
+    for (int i = 0; i < array_length(antip.remote_threads); ++i)
+    {
+        if (antip.remote_worker_id == antip.remote_threads[i].id)
+            continue;
+        RemoteThread rt = { antip.remote_threads[i].handle, antip.remote_threads[i].id };
+        SuspendThread(antip.remote_threads[i].handle);
+        array_push(antip.suspended_threads, rt);
+    }
 
     DWORD written = 0;
     DebugRequest dr = { sizeof(DebugRequest) - sizeof(uint32_t), ctClearResults };
@@ -841,7 +854,9 @@ antipessimizer_read_pipe_message()
 
             // TODO(psv): This is not right
             if (read_bytes == 0)
+            {
                 break;
+            }
         }
 
         uint32_t type = *(uint32_t*)buffer;

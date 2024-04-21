@@ -112,8 +112,9 @@ end;
 
 procedure ProcessClearResults;
 begin
-  LogDebug('Clearing Results', []);
+  LogDebug('Clearing Results ThreaID=%d', [GetCurrentThreadId]);
   ProfilerClearResults;
+  OutputDebugString(PWidechar('AntiPessimizerReady'));
 end;
 
 function WaitForCommand(pipe : THandle): TCommand;
@@ -168,10 +169,10 @@ begin
 
   PCardinal(stream.Memory)^ := stream.Position - Sizeof(Cardinal);
 
-  //LogDebug('Sending Profiling results to pipe %d', [stream.Size]);
+  //LogDebug('Sending Profiling results to pipe %d %d', [stream.Size, stream.Position - Sizeof(Cardinal)]);
 
   if stream.Size > 0 then
-    WriteFile(pipe, PByte(stream.Memory)^, stream.Size, nWritten, nil);
+    WriteFile(pipe, PByte(stream.Memory)^, stream.Position, nWritten, nil);
 end;
 
 function Worker(pParam : Pointer): DWORD; stdcall;

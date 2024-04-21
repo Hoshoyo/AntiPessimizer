@@ -185,12 +185,47 @@ begin
   tw2.WaitFor;
 end;
 
+procedure UselessProc1;
+var
+  nNonsense : Integer;
+begin
+  nNonsense := 5;
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+
+  for var nIndex := 0 to 100000 - 1 do
+     Inc(nNonsense, 5);
+end;
+
+procedure UselessProc2;
+var
+  nNonsense : Integer;
+begin
+  nNonsense := 5;
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+  Inc(nNonsense, nNonsense + 5);
+
+  for var nIndex := 0 to 1000000 - 1 do
+     Inc(nNonsense, 5);
+
+  ProfilerClearResults;
+end;
+
 begin
   g_AntipessimizerGuiWindow := FindWindow('AntiPessimizerClass', nil);
   InstrumentModuleProcs;
 
+  UselessProc1;
+  UselessProc2;
+
+  //UselessProc2;
+
   //TestThreads;
-  TestFunction;
+  //TestFunction;
   //TestRegisterCaller;
   PrintDHProfilerResults;
 end.
