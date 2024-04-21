@@ -145,14 +145,17 @@ gui_selection_window(Gui_State* gui)
             antipessimizer_clear_results();
         }
 
-        if (ImGui::Button("RT"))
+        if (ImGui::Button("Realtime"))
         {
             gui->realtime_results = !gui->realtime_results;
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Result"))
+        if (!gui->realtime_results)
         {
-            antipessimizer_request_result();
+            ImGui::SameLine();
+            if (ImGui::Button("Result"))
+            {
+                antipessimizer_request_result();
+            }
         }
 
         if (gui->realtime_results)
@@ -199,9 +202,8 @@ gui_selection_window(Gui_State* gui)
                 for (int i = 0; i < array_length(modtable->modules); ++i)
                 {
                     ExeModule* em = modtable->modules + i;
-
-                    //if(em->name.data[0] != gui->unit_filter[0])
-                    if (!strstr(em->name.data, gui->unit_filter))
+                    
+                    if (!strstr(tmp_str_lowercase(em->name).data, tmp_str_lowercase(tmp_str_new_c(gui->unit_filter)).data))
                     {                        
                         continue;
                     }
@@ -266,18 +268,6 @@ typedef enum {
 static int sort_algo_direction = 1;
 
 static int
-compare_anchor_hitcount(const void* lhs, const void* rhs)
-{
-    ProfileAnchor* left = (ProfileAnchor*)lhs;
-    ProfileAnchor* right = (ProfileAnchor*)rhs;
-
-    int result = left->hitcount - right->hitcount;
-    if (result == 0)
-        result = strncmp(left->name.data, right->name.data, left->name.length);
-    return result * sort_algo_direction;
-}
-
-static int
 compare_anchor_name(const void* lhs, const void* rhs)
 {
     ProfileAnchor* left = (ProfileAnchor*)lhs;
@@ -311,6 +301,22 @@ compare_anchor_elapsed_exclusive(const void* lhs, const void* rhs)
         return sort_algo_direction * sign;
     else if (left->name.data && right->name.data)
         return strncmp(left->name.data, right->name.data, left->name.length) * sort_algo_direction;
+}
+
+static int
+compare_anchor_hitcount(const void* lhs, const void* rhs)
+{
+    ProfileAnchor* left = (ProfileAnchor*)lhs;
+    ProfileAnchor* right = (ProfileAnchor*)rhs;
+
+    int result = left->hitcount - right->hitcount;
+    if (result == 0)
+    {
+        result = compare_anchor_elapsed_exclusive(lhs, rhs) * -1;
+        if (result == 0)
+            result = strncmp(left->name.data, right->name.data, left->name.length);
+    }
+    return result * sort_algo_direction;
 }
 
 typedef int sort_algo_t(const void*, const void*);
@@ -403,7 +409,7 @@ gui_results(Gui_State* gui)
                     {
                         ProfileAnchor* item = &prof->anchors[i];
                         String unm_name = unmangle_name(item->name);
-                        if (!strstr(unm_name.data, gui->result_filter))
+                        if (!strstr(tmp_str_lowercase(unm_name).data, tmp_str_lowercase(tmp_str_new_c(gui->result_filter)).data))
                         {
                             continue;
                         }
