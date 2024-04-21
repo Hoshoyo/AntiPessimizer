@@ -30,15 +30,17 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 #ifdef _DEBUG
 int main(int, char**)
+{
 #else
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
-#endif
+
 {
     if (strstr(lpCmdLine, "-debug"))
     {
         AllocConsole();
         freopen("CONOUT$", "w", stdout);
     }
+#endif
 
     DWORD foo = GetCurrentThreadId();
     // Create application window
