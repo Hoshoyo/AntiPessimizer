@@ -382,6 +382,11 @@ gui_results(Gui_State* gui)
         | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_NoBordersInBody
         | ImGuiTableFlags_ScrollY;
 
+    if (ImGui::Begin("Flame Graph"))
+    {
+    }
+    ImGui::End();
+
     if (ImGui::Begin("Results Sorted"))
     {
         char rs_buf[64] = { 0 };
