@@ -7,6 +7,7 @@ uses
   RTTI,
   Generics.Collections,
   System.Classes,
+  FlameGraphProfiler in 'FlameGraphProfiler.pas',
   CoreProfiler in 'CoreProfiler.pas',
   ExeLoader in 'ExeLoader.pas',
   Udis86 in 'Udis86.pas',
@@ -56,7 +57,7 @@ var
   g_RecvCommandBuffer : array [0..64*1024*1024-1] of Byte;
   g_bInstrumentationReady : Boolean = False;
 
-procedure ProcessInstrumentationCommand(cmd : TCommand; state : PDebuggeeState);
+procedure ProcessInstrumentationCommand(cmd : TCommand; state : PDebuggeeState; pmMode : TProfilingMode);
 var
   reader                  : TBinaryReader;
   nProcCount              : Integer;
@@ -98,7 +99,7 @@ begin
   lstProcsToInstrument.Free;
   dicProcsSent.Free;
 
-  InstrumentProcs(lstProcToInstrumentInfo);
+  InstrumentProcs(lstProcToInstrumentInfo, pmMode);
 
   // Say that we are ready to the debugger
   OutputDebugString(PWidechar('AntiPessimizerReady'));
@@ -199,13 +200,13 @@ begin
     recvstream.Position := 0;
     cmd := WaitForCommand(pipe);
 
-    //OutputDebugString(PWidechar('Received command of type=' + IntToStr(Integer(cmd.ctType))));
     case cmd.ctType of
-      ctRequestProcedures:   ProcessSendAllModules(pipe, @state);
-      ctInstrumetProcedures: ProcessInstrumentationCommand(cmd, @state);
-      ctProfilingData:       ProcessSendResults(pipe, sendstream, sendwriter, True);
-      ctProfilingDataNoName: ProcessSendResults(pipe, sendstream, sendwriter, False);
-      ctClearResults:        ProcessClearResults;
+      ctRequestProcedures:       ProcessSendAllModules(pipe, @state);
+      ctInstrumetProcedures:     ProcessInstrumentationCommand(cmd, @state, pmDefault);
+      ctInstrumentForFlameGraph: ProcessInstrumentationCommand(cmd, @state, pmFlameGraph);
+      ctProfilingData:           ProcessSendResults(pipe, sendstream, sendwriter, True);
+      ctProfilingDataNoName:     ProcessSendResults(pipe, sendstream, sendwriter, False);
+      ctClearResults:            ProcessClearResults;
     else
       LogDebug('Invalid Command', []);
     end;

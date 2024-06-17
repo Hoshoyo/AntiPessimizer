@@ -12,6 +12,8 @@ uses
   Windows;
 
 type
+  TProfilingMode = (pmDefault = 0, pmFlameGraph = 1);
+
   PEXCEPTION_RECORD = ^EXCEPTION_RECORD;
   EXCEPTION_RECORD = record
     ExceptionCode    : DWORD;
@@ -29,7 +31,7 @@ type
   PEXCEPTION_POINTERS = ^EXCEPTION_POINTERS;
 
 {$Z4}
-  TCommandType = (ctEnd = 0, ctRequestProcedures = 1, ctInstrumetProcedures = 2, ctProfilingData = 3, ctProfilingDataNoName = 4, ctClearResults = 5);
+  TCommandType = (ctEnd = 0, ctRequestProcedures = 1, ctInstrumetProcedures = 2, ctProfilingData = 3, ctProfilingDataNoName = 4, ctClearResults = 5, ctInstrumentForFlameGraph = 6);
   PCommandType = ^TCommandType;
 {$Z1}
 
@@ -42,8 +44,8 @@ type
   end;
 
   function  ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;
-  function  InstrumentFunction(strName : String; nLine : Integer; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor): Boolean;
-  procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
+  function  InstrumentFunction(strName : String; nLine : Integer; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor; pmMode : TProfilingMode): Boolean;
+  procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>; pmMode : TProfilingMode);
   function  ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
   procedure PatchProcedure(ptrProcAddr : PByte; ptrNewProcAddr : PByte);
   procedure HookedExceptionHandler;
@@ -56,8 +58,12 @@ type
 const
   c_nModuleCodeOffset = $1000;
 
+var
+  g_pmProfilingMode : TProfilingMode = pmDefault;
+
 implementation
 uses
+  FlameGraphProfiler,
   Utils,
   JclPeImage,
   psAPI,
@@ -79,6 +85,125 @@ var
 procedure RemoveHandler;
 begin
   RemoveVectoredExceptionHandler(@ExceptionHandler);
+end;
+
+procedure HookEpilogueFlame;
+asm
+  .noframe
+  push rax
+  push rcx
+  push rdx
+  push r8
+  push r9
+  push r10
+  push r11
+  push rsi
+  push rdi
+
+  sub rsp, 40
+  call FlameExitProfileBlock  // Returns the address where we need to jump back
+  add rsp, 40
+
+  pop rdi
+  pop rsi
+  pop r11
+  pop r10
+  pop r9
+  pop r8
+  pop rdx
+  pop rcx
+
+{$IF False}
+  mov rcx, rax
+  pop rax
+  jmp rcx
+{$ELSE}
+
+  push rax // jump target
+  mov rax, [rsp+8] // return value
+  push rax
+
+  mov rax, [rsp+8] // jump target
+  mov [rsp+16], rax
+
+  pop rax // restore the return value
+  add rsp, 8
+{$ENDIF}
+
+  // return to the jump target
+end;
+
+procedure HookJumpFlame;
+asm
+  .noframe
+  // TODO(psv): Only setup the return address if we were called from a call
+
+  mov r11, rax
+
+  mov rax, qword ptr[rsp+8]
+  mov r10, r11
+  shl r11, 8
+  shr r11, 8
+  shr r10, 56
+
+  push rcx
+  push rdx
+  push rbx
+  mov rbx, qword ptr gs:[$30]
+  lea rcx, [g_ThreadTranslateT]
+  xor rdx, rdx
+  mov edx, dword ptr [rbx+$48] // ThreadID
+  shl rdx, 5 // * sizeof (TThrTranslate)
+  add rcx, rdx
+
+  mov qword ptr[rcx], rax     // save the old return address EpilogueJump Address
+
+  lea rdx, [rsp+32]           // save the last hook jump
+  mov qword ptr[rcx+8], rdx
+
+  pop rbx
+  pop rdx
+  pop rcx
+
+  lea rax, HookEpilogueFlame
+  mov qword ptr[rsp+8], rax // mov new address as return
+
+  // This is where we are called from this needs to be done, eventhough the call
+  // stack appears unaligned, since the HookJump is called via "call"
+  pop rax
+
+  //mov g_LastHookedJump, rsp
+
+  // Whatever it needs to be done do it here
+    // Naive implementation for now
+    push rcx
+    push rdx
+    push r8
+    push r9
+    push r11
+    push rsi
+    push rdi
+
+    mov rcx, rax  // rax is the base address of the function called after executing the first 15 bytes
+    sub rcx, 15   // rcx here is the base address of the called function
+    add r10, rax  // go back to the position after the buffered execution
+    push r10
+
+    sub rsp, 40
+    call FlameEnterProfileBlock
+    add rsp, 40
+
+    pop r10
+
+    pop rdi
+    pop rsi
+    pop r11
+    pop r9
+    pop r8
+    pop rdx
+    pop rcx
+
+  jmp r11
 end;
 
 procedure HookEpilogue;
@@ -107,12 +232,6 @@ asm
   pop rdx
   pop rcx
 
-{$IF False}
-  mov rcx, rax
-  pop rax
-  jmp rcx
-{$ELSE}
-
   push rax // jump target
   mov rax, [rsp+8] // return value
   push rax
@@ -122,7 +241,6 @@ asm
 
   pop rax // restore the return value
   add rsp, 8
-{$ENDIF}
 
   // return to the jump target
 end;
@@ -177,66 +295,18 @@ asm
     push r11
     push rsi
     push rdi
-    {
-    sub rsp, 224
-    movdqu [rsp + 0], xmm0
-    movdqu [rsp + 16], xmm1
-    movdqu [rsp + 32], xmm2
-    movdqu [rsp + 48], xmm3
-    movdqu [rsp + 64], xmm4
-    movdqu [rsp + 80], xmm5
-    movdqu [rsp + 96], xmm8
-    movdqu [rsp + 112], xmm9  // 128
-    movdqu [rsp + 128], xmm10 // 144
-    movdqu [rsp + 144], xmm11 // 160
-    movdqu [rsp + 160], xmm12 // 176
-    movdqu [rsp + 176], xmm13 // 192
-    movdqu [rsp + 192], xmm14 // 208
-    movdqu [rsp + 208], xmm15 // 224
-    }
 
     mov rcx, rax  // rax is the base address of the function called after executing the first 15 bytes
     sub rcx, 15   // rcx here is the base address of the called function
     add r10, rax  // go back to the position after the buffered execution
     push r10
 
-    {
-    push rcx
-    sub rsp, 40
-    mov rcx, g_AntipessimizerGuiWindow
-    mov rdx, 1024
-    lea r8, qword ptr [rsp+$60]
-    mov r9, qword ptr gs:[$30]
-    mov r9d, dword ptr [r9+$48]
-    or r9, $200000
-    call SendMessage
-    add rsp, 40
-    pop rcx    
-    }
-
     sub rsp, 40
     call DHEnterProfileBlock
     add rsp, 40
 
     pop r10
-    
-    {
-    movdqu [rsp + 0], xmm0
-    movdqu [rsp + 16], xmm1
-    movdqu [rsp + 32], xmm2
-    movdqu [rsp + 48], xmm3
-    movdqu [rsp + 64], xmm4
-    movdqu [rsp + 80], xmm5
-    movdqu [rsp + 96], xmm8
-    movdqu [rsp + 112], xmm9  // 128
-    movdqu [rsp + 128], xmm10 // 144
-    movdqu [rsp + 144], xmm11 // 160
-    movdqu [rsp + 160], xmm12 // 176
-    movdqu [rsp + 176], xmm13 // 192
-    movdqu [rsp + 192], xmm14 // 208
-    movdqu [rsp + 208], xmm15 // 224
-    add rsp, 224        
-    }
+
     pop rdi    
     pop rsi
     pop r11
@@ -248,18 +318,56 @@ asm
   jmp r11
 end;
 
+procedure HookedExceptionHandler;
+asm
+.noframe
+  mov r11, rax
+  shl r11, 8
+  shr r11, 8
+  shr rax, 56
+  mov r10, qword ptr[rsp]
+  add r10, rax
+  add rsp, 8
+
+  // Do here whatever needs to be done to unwind stuff
+
+    push rsp
+    push rcx
+    push rdx
+    push r8
+    push r9
+    push r10
+    push r11
+
+    sub rsp, 40
+    lea rcx, HookEpilogue
+    call DHUnwindExceptionBlock  // Returns the address where we need to jump back
+    add rsp, 40
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdx
+    pop rcx
+    pop rsp
+
+  jmp r11
+end;
+
 function GetBase(obj: TObject): TJclPeBorTD32Image;
 type
   PJclPeBorTD32Image = ^TJclPeBorTD32Image;
 var
   ctx : TRTTIContext;
+
   MemberVarOffset : Integer;
 begin
   MemberVarOffset := ctx.GetType(TJclDebugInfoTD32).GetField('FImage').Offset;
   Result := PJclPeBorTD32Image(Pointer(NativeInt(obj) + MemberVarOffset))^;
 end;
 
-function InstrumentFunction(strName : String; nLine : Integer; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor): Boolean;
+function InstrumentFunction(strName : String; nLine : Integer; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor; pmMode : TProfilingMode): Boolean;
 var
   pExecBuffer : PAnchorBuffer;
   nOldProtect : DWORD;
@@ -315,7 +423,10 @@ begin
           PUint64(pProcAddr + 2)^ := Uint64(pExecBuffer);
           pProcAddr[9] := Byte(nToSave - 15);
           pProcAddr[$A] := $E8;
-          PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4));
+          //if pmMode = pmFlameGraph then
+          //  PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJumpFlame) - Int64(pProcAddr + $B + 4))
+          //else
+            PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4));
           Result := True;
         end;
     end
@@ -536,7 +647,7 @@ begin
   end;
 end;
 
-procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
+procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>; pmMode : TProfilingMode);
 var
   pProcAddr : Pointer;
   modInfo   : MODULEINFO;
@@ -580,7 +691,10 @@ begin
       ZeroMemory(pDhTable, nSize + 2 * sizeof(TProfileAnchor));
       pDhTable := PByte(pDhTable) + sizeof(TProfileAnchor);
 
-      InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
+      if pmMode = pmDefault then
+        InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc))
+      else
+        InitializeFlameProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
 
       SetLength(g_DHArrProcedures, lstProcs.Count);
       ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
@@ -596,7 +710,7 @@ begin
           if (nLastAddr - Uint64(pProcAddr)) >= sizeof(TProfileAnchor) then
             begin
               g_DHArrProcedures[nIndex] := pProcAddr;
-              if not InstrumentFunction(strName, 0, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
+              if not InstrumentFunction(strName, 0, pProcAddr, ipInfo.procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)), pmMode) then
                 g_DHArrProcedures[nIndex] := nil;
             end
           else
@@ -609,43 +723,6 @@ begin
     end;
 
   OutputDebugString('End of instrumentation');
-end;
-
-procedure HookedExceptionHandler;
-asm
-.noframe
-  mov r11, rax
-  shl r11, 8
-  shr r11, 8
-  shr rax, 56
-  mov r10, qword ptr[rsp]
-  add r10, rax
-  add rsp, 8
-
-  // Do here whatever needs to be done to unwind stuff
-
-    push rsp
-    push rcx
-    push rdx
-    push r8
-    push r9
-    push r10
-    push r11
-
-    sub rsp, 40
-    lea rcx, HookEpilogue
-    call DHUnwindExceptionBlock  // Returns the address where we need to jump back
-    add rsp, 40
-
-    pop r11
-    pop r10
-    pop r9
-    pop r8
-    pop rdx
-    pop rcx
-    pop rsp
-
-  jmp r11
 end;
 
 procedure PatchProcedure(ptrProcAddr : PByte; ptrNewProcAddr : PByte);
@@ -703,7 +780,6 @@ begin
     begin
       locInfo := GetLocationInfo(BackTrace[nIndex]);
       LogDebug('[%d] %p %s:%d', [nIndex, BackTrace[nIndex], locInfo.ProcedureName, locInfo.LineNumber]);
-      //LogDebug('%p', [BackTrace[nIndex]]);
     end;
   LogDebug('=== Finished dumping stack === ', []);
 end;
@@ -715,7 +791,6 @@ var
   BackTrace : array [0..63] of Pointer;
   locInfo : TJclLocationInfo;
 begin
-  //JclLastExceptionStack
   nStackCount := RtlCaptureStackBackTrace(0, 64, @BackTrace[0], nil);
   LogDebug('Stack count=%d', [nStackCount]);
 
@@ -788,13 +863,7 @@ end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 begin
-  //LogDebug('Exception at %p code: %x Thread: %d', [ExceptionInfo.ExceptionRecord.ExceptionAddress, ExceptionInfo.ExceptionRecord.ExceptionCode, GetCurrentThreadID]);
-  //SendMessage(g_AntipessimizerGuiWindow, 1024, $FFFFFFFF, 0);
-
-  //PrintDebugStack(ExceptionInfo);
-
   DHUnwindEveryStack;
-
   Result := 0;
 end;
 

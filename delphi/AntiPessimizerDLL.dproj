@@ -118,6 +118,7 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="FlameGraphProfiler.pas"/>
         <DCCReference Include="CoreProfiler.pas"/>
         <DCCReference Include="ExeLoader.pas"/>
         <DCCReference Include="Udis86.pas"/>
@@ -164,6 +165,12 @@
                     </Platform>
                 </DeployFile>
                 <DeployFile LocalName="..\Win64\Debug\AntiPessimizerDLL.dll" Configuration="Debug" Class="ProjectOutput"/>
+                <DeployFile LocalName="..\Win64\Debug\AntiPessimizerDLL.dll" Configuration="Debug" Class="ProjectOutput">
+                    <Platform Name="Win64">
+                        <RemoteName>AntiPessimizerDLL.dll</RemoteName>
+                        <Overwrite>true</Overwrite>
+                    </Platform>
+                </DeployFile>
                 <DeployFile LocalName="Win32\Debug\AntiPessimizerDLL.dll" Configuration="Debug" Class="ProjectOutput"/>
                 <DeployClass Name="AdditionalDebugSymbols">
                     <Platform Name="iOSSimulator">

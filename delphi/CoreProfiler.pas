@@ -12,6 +12,8 @@ const
   c_AnchorBundleCount = 8;
 
 type
+  TFlameGraphOperation = (fgoNone = 0, fgoEnterBlock = 1, fgoExitBlock = 2);
+
   TProfileBucket = record
     nElapsedExclusive : Uint64;
     nElapsedInclusive : Uint64;
@@ -97,6 +99,10 @@ var
 
   g_ThreadAllocIndex : Integer;
   g_nCyclesPerSecond : Int64;
+
+  g_fFlameGraphStream : TMemoryStream;
+  g_fFlameGraphFile   : TFileStream;
+  g_wFlameGraphWriter : TBinaryWriter;
 
 {$IFDEF MSWINDOWS}
 type
@@ -341,29 +347,47 @@ begin
   pBlock.ptrReturnTarget := pEpilogueJmp;
   pBlock.ptrLastHookJump := g_ThreadTranslateT[nCurrThreadID].pLastHookJmp;
 
-  //LogDebug(' Enter - ThreadIndex=%d ThreadID=%d AtIdx=%d Block=%p %d %s', [nThrIdx, GetCurrentThreadID, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
+  LogDebug(' Enter - ThreadIndex=%d ThreadID=%d AtIdx=%d Block=%p %d %s', [nThrIdx, GetCurrentThreadID, nAtIdx, pBlock, GetCurrentThreadID, pBlock.pAnchor.strName]);
   //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(nAddr), $200000 or GetCurrentThreadID);
+
+  {
+  g_wFlameGraphWriter.Write(Integer(fgoEnterBlock));
+  g_wFlameGraphWriter.Write(Cardinal(nCurrThreadID));
+  g_wFlameGraphWriter.Write(nAtIdx);
+  g_wFlameGraphWriter.Write(Uint64(nAddr));
+  }
 
   pBlock.nPrevTimeInclusive := pBlock.pAnchor.nElapsedInclusive;
   pBlock.nStartTime := ReadTimeStamp;
+
+  //g_wFlameGraphWriter.Write(pBlock.nStartTime);
 end;
 
 function DHExitProfileBlock: Pointer;
 var
-  nAtIdx      : Integer;
-  nThrIndex   : Integer;
-  pBlock      : PDHProfileBlock;
-  nElapsed    : Uint64;
+  nAtIdx        : Integer;
+  nThrIndex     : Integer;
+  pBlock        : PDHProfileBlock;
+  nElapsed      : Uint64;
+  nCurrThreadID : Cardinal;
 begin
   nElapsed := ReadTimeStamp;
 
   try
-    nThrIndex := g_ThreadTranslateT[GetCurrentThreadID].nThreadIndex;
+    nCurrThreadID := GetCurrentThreadID;
+    nThrIndex := g_ThreadTranslateT[nCurrThreadID].nThreadIndex;
     if nThrIndex = -1 then
       Exit(nil);
 
     nAtIdx := g_DHProfileStack[nThrIndex].nAtIndex;
     pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
+
+    {
+    g_wFlameGraphWriter.Write(Integer(fgoExitBlock));
+    g_wFlameGraphWriter.Write(Cardinal(nCurrThreadID));
+    g_wFlameGraphWriter.Write(nAtIdx);
+    g_wFlameGraphWriter.Write(nElapsed);
+    }
 
     //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pBlock.pAnchor.pAddr), $100000 or GetCurrentThreadID);
     Dec(g_DHProfileStack[nThrIndex].nAtIndex);
@@ -411,10 +435,7 @@ begin
       pBlock := @g_DHProfileStack[nThrIndex].pbBlocks[nAtIdx];
       pLastHookJmp := pBlock.ptrLastHookJump;
       if pLastHookJmp <> nil then
-        begin
-          pLastHookJmp^ := pBlock.ptrReturnTarget;
-          //SendMessage(g_AntipessimizerGuiWindow, 1024, WPARAM(pLastHookJmp), $100000 or GetCurrentThreadID);
-        end;
+        pLastHookJmp^ := pBlock.ptrReturnTarget;
       Dec(nAtIdx)
     end;
   Result := nil;
@@ -472,6 +493,9 @@ begin
         end;
     end;
 
+  //LogDebug('Unwind at index = %d', [nAtIdx]);
+  //SendMessage(g_AntipessimizerGuiWindow, 1024, 0, nAtIdx);
+
   if (nAtIdx <> -1) and bFound then
     begin
       for nIndex := g_DHProfileStack[nThrIndex].nAtIndex downto 0 do
@@ -524,6 +548,16 @@ begin
     nTimeStamp := ReadTimeStamp;
 
   g_nCyclesPerSecond := (nTimeStamp - nStartTimeStamp) * 10;
+end;
+
+procedure DumpFlameGraphToFile;
+var
+  nPos : Integer;
+begin
+  nPos := g_fFlameGraphStream.Position;
+  g_fFlameGraphStream.Seek(0, soBeginning);
+  g_fFlameGraphFile.CopyFrom(g_fFlameGraphStream, nPos);
+  g_fFlameGraphStream.Seek(0, soBeginning);
 end;
 
 procedure PrintDHProfilerResults;
@@ -725,6 +759,8 @@ begin
     end;
 
   PCardinal(PByte(stream.Memory) + nStartPos)^ := nCount;
+
+  //DumpFlameGraphToFile;
 
   //LogDebug('Stream size=%d %d', [PInteger(PByte(stream.Memory))^, PCardinal(PByte(stream.Memory) + nStartPos)^]);
   except
