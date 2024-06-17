@@ -36,6 +36,7 @@ typedef enum {
     ctProfilingData = 3,
     ctProfilingDataNoName = 4,
     ctClearResults = 5,
+    ctInstrumentForFlameGraph = 6,
 } PipeMessage;
 
 typedef struct {
@@ -53,7 +54,7 @@ typedef struct {
 } ProfilingResults;
 
 void  antipessimizer_init();
-int   antipessimizer_start(const char* filepath);
+int   antipessimizer_start(const char* filepath, bool flame_graph);
 int   antipessimizer_load_exe(const char* filepath);
 void  antipessimizer_request_result();
 void* antipessimizer_read_pipe_message();

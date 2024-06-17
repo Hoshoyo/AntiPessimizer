@@ -204,7 +204,7 @@ begin
       ctRequestProcedures:       ProcessSendAllModules(pipe, @state);
       ctInstrumetProcedures:     ProcessInstrumentationCommand(cmd, @state, pmDefault);
       ctInstrumentForFlameGraph: ProcessInstrumentationCommand(cmd, @state, pmFlameGraph);
-      ctProfilingData:           ProcessSendResults(pipe, sendstream, sendwriter, True);
+      ctProfilingData:           DumpFlameGraphToFile;//ProcessSendResults(pipe, sendstream, sendwriter, True);
       ctProfilingDataNoName:     ProcessSendResults(pipe, sendstream, sendwriter, False);
       ctClearResults:            ProcessClearResults;
     else

@@ -82,7 +82,6 @@ type
 var
   g_DHArrProcedures  : array of Pointer;
   g_Pipe : THandle;
-  g_ThreadTranslateT : array [0..1024*1024-1] of TThrTranslate; // ThreadID translation table (supports 1 million threads)
   g_AntipessimizerGuiWindow : HWND;
 
 implementation
@@ -550,16 +549,6 @@ begin
   g_nCyclesPerSecond := (nTimeStamp - nStartTimeStamp) * 10;
 end;
 
-procedure DumpFlameGraphToFile;
-var
-  nPos : Integer;
-begin
-  nPos := g_fFlameGraphStream.Position;
-  g_fFlameGraphStream.Seek(0, soBeginning);
-  g_fFlameGraphFile.CopyFrom(g_fFlameGraphStream, nPos);
-  g_fFlameGraphStream.Seek(0, soBeginning);
-end;
-
 procedure PrintDHProfilerResults;
 var
   nIndex   : Integer;
@@ -700,6 +689,8 @@ var
   nBundleIndex : Integer;
 begin
   try
+
+  {
   nCount := 0;
   nStartPos := stream.Position;
   writer.Write(Integer(-1));
@@ -759,8 +750,7 @@ begin
     end;
 
   PCardinal(PByte(stream.Memory) + nStartPos)^ := nCount;
-
-  //DumpFlameGraphToFile;
+  }
 
   //LogDebug('Stream size=%d %d', [PInteger(PByte(stream.Memory))^, PCardinal(PByte(stream.Memory) + nStartPos)^]);
   except

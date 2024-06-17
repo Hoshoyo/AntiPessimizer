@@ -55,7 +55,7 @@ typedef struct {
 } FlameStack;
 
 void
-flame_graph(Gui_State* gui)
+gui_flame_graph(Gui_State* gui)
 {
     if (!gui->flame_graph_data && os_file_exists((char*)"out.flame"))
     {
@@ -86,9 +86,9 @@ flame_graph(Gui_State* gui)
 
     FlameEntry* at = (FlameEntry*)gui->flame_graph_data;
     uint64_t first = at->enter.start;
-    //for (int i = 0; i < 100; ++i)
-    int  i = 0;
-    while (true)
+    for (int i = 0; i < 100; ++i)
+    //int  i = 0;
+    //while (true)
     {
         if (*(char*)at == 0)
             break;
@@ -113,7 +113,7 @@ flame_graph(Gui_State* gui)
                 at = (FlameEntry*)((char*)at - sizeof(uint64_t));
             } break;
         }
-        i++;
+        //i++;
         at++;
     }
 

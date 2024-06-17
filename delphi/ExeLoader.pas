@@ -60,6 +60,7 @@ const
 
 var
   g_pmProfilingMode : TProfilingMode = pmDefault;
+  g_ThreadTranslateT : array [0..1024*1024-1] of TThrTranslate; // ThreadID translation table (supports 1 million threads)
 
 implementation
 uses
@@ -423,9 +424,9 @@ begin
           PUint64(pProcAddr + 2)^ := Uint64(pExecBuffer);
           pProcAddr[9] := Byte(nToSave - 15);
           pProcAddr[$A] := $E8;
-          //if pmMode = pmFlameGraph then
-          //  PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJumpFlame) - Int64(pProcAddr + $B + 4))
-          //else
+          if pmMode = pmFlameGraph then
+            PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJumpFlame) - Int64(pProcAddr + $B + 4))
+          else
             PCardinal(pProcAddr + $B)^ := Cardinal(Int64(@HookJump) - Int64(pProcAddr + $B + 4));
           Result := True;
         end;
@@ -863,7 +864,8 @@ end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 begin
-  DHUnwindEveryStack;
+  //DHUnwindEveryStack;
+  FlameUnwindEveryStack;
   Result := 0;
 end;
 

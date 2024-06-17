@@ -131,9 +131,19 @@ gui_selection_window(Gui_State* gui)
             // When running again, clear the old results
             // TODO(psv): Save results before clearing
             antipessimizer_clear_anchors();
-            antipessimizer_start(gui->process_filepath);
+            antipessimizer_start(gui->process_filepath, false);
             gui->realtime_results = true;
         }
+        ImGui::SameLine();
+        if (ImGui::Button("Flame") && file_exists(gui->process_filepath))
+        {
+            // When running again, clear the old results
+            // TODO(psv): Save results before clearing
+            antipessimizer_clear_anchors();
+            antipessimizer_start(gui->process_filepath, true);
+            gui->realtime_results = true;
+        }
+
         ImGui::SameLine();
         if (ImGui::Button("Save"))
         {
@@ -382,8 +392,9 @@ gui_results(Gui_State* gui)
         | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_NoBordersInBody
         | ImGuiTableFlags_ScrollY;
 
-    if (ImGui::Begin("Flame Graph"))
+    if (ImGui::Begin("Flame Graph", 0, ImGuiWindowFlags_HorizontalScrollbar))
     {
+        gui_flame_graph(gui);
     }
     ImGui::End();
 

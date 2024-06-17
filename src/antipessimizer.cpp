@@ -621,7 +621,7 @@ antipessimizer_load_results(const char* filename)
 }
 
 int
-antipessimizer_start(const char* filepath)
+antipessimizer_start(const char* filepath, bool flame_graph)
 {
     if (antip.started && antip.running)
         return 0;
@@ -629,7 +629,7 @@ antipessimizer_start(const char* filepath)
     char* at = (char*)antip.send_buffer;
     uint32_t* size = (uint32_t*)at;
     at += sizeof(uint32_t);
-    *(int*)at = ctInstrumetProcedures;
+    *(int*)at = (flame_graph) ? ctInstrumentForFlameGraph : ctInstrumetProcedures;
     at += sizeof(int);
 
     if (antip.module_table.modules)

@@ -14,6 +14,7 @@ uses
   StrUtils,
   Math,
   ExeLoader in 'ExeLoader.pas',
+  FlameGraphProfiler in 'FlameGraphProfiler.pas',
   CoreProfiler in 'CoreProfiler.pas',
   Utils in 'Utils.pas',
   Udis86 in 'Udis86.pas';
@@ -213,7 +214,7 @@ begin
   for var nIndex := 0 to 1000000 - 1 do
      Inc(nNonsense, 5);
 
-  ProfilerClearResults;
+  //ProfilerClearResults;
 end;
 
 procedure InstrumentModuleProcs;
@@ -264,7 +265,8 @@ begin
           pDhTable := AllocMem(nSize + 2 * sizeof(TProfileAnchor));
           pDhTable := PByte(pDhTable) + sizeof(TProfileAnchor);
           ZeroMemory(pDhTable, nSize + 2 * sizeof(TProfileAnchor));
-          InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
+          //InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
+          InitializeFlameProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
 
           SetLength(g_DHArrProcedures, lstProcs.Count);
           ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
@@ -284,7 +286,7 @@ begin
                   g_DHArrProcedures[nIndex] := pProcAddr;
 
                   OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + '}'));
-                  if not InstrumentFunction(strName, 0, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
+                  if not InstrumentFunction(strName, 0, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc)), pmFlameGraph) then
                     g_DHArrProcedures[nIndex] := nil;
                 end
               else
@@ -311,7 +313,9 @@ begin
   //TestThreads;
   //TestFunction;
   //TestRegisterCaller;
-  PrintDHProfilerResults;
+  //PrintDHProfilerResults;
+
+  DumpFlameGraphToFile;
 end.
 
 

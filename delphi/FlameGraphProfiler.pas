@@ -43,6 +43,7 @@ type
   function  FlameUnwindExceptionBlock(HookEpilogue: Pointer; EstablisherFrame: NativeUInt; ContextRecord: Pointer; DispatcherContext: Pointer): Pointer;
   function  FlameUnwindEveryStack: Pointer;
   procedure InitializeFlameProfilerTable(pAnchor : Pointer; nOffsetFromModuleBase : Int64);
+  procedure DumpFlameGraphToFile;
 
 implementation
 uses
@@ -53,7 +54,6 @@ uses
   SysUtils;
 
 var
-  g_ThreadTranslateT : array [0..1024*1024-1] of TThrTranslate; // ThreadID translation table (supports 1 million threads)
   g_FlameProfileStack   : array [0..63] of TFlameProfilerStack;  // The memory used as a stack to keep in flight profiling data
 
   g_ThreadAllocIndex : Integer;
@@ -149,12 +149,13 @@ begin
   pBlock := @g_FlameProfileStack[nThrIdx].pbBlocks[nAtIdx];
   pBlock.ptrAddr := nAddr;
 
+  pBlock.ptrReturnTarget := pEpilogueJmp;
+  pBlock.ptrLastHookJump := g_ThreadTranslateT[nCurrThreadID].pLastHookJmp;
+
   g_wFlameGraphWriter.Write(Integer(fgoEnterBlock));
   g_wFlameGraphWriter.Write(Cardinal(nCurrThreadID));
   g_wFlameGraphWriter.Write(nAtIdx);
   g_wFlameGraphWriter.Write(Uint64(nAddr));
-
-  LogDebug('Enter %p', [nAddr]);
 
   g_wFlameGraphWriter.Write(ReadTimeStamp);
 end;
@@ -184,8 +185,6 @@ begin
     g_wFlameGraphWriter.Write(nElapsed);
 
     Dec(g_FlameProfileStack[nThrIndex].nAtIndex);
-
-    LogDebug('Exit %p', [pBlock.ptrAddr]);
 
     Result := pBlock.ptrReturnTarget;
   except

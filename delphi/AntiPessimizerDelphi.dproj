@@ -129,6 +129,7 @@
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="ExeLoader.pas"/>
+        <DCCReference Include="FlameGraphProfiler.pas"/>
         <DCCReference Include="CoreProfiler.pas"/>
         <DCCReference Include="Utils.pas"/>
         <DCCReference Include="Udis86.pas"/>
