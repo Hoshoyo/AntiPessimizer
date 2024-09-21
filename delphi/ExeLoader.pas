@@ -7,7 +7,6 @@ interface
 uses
   Udis86,
   JclTD32,
-  CoreProfiler,
   Generics.Collections,
   Windows;
 
@@ -42,31 +41,31 @@ type
   end;
 
   function  ExeLoaderSendAllModules(pipe : THandle): TDictionary<String, TJclTD32ProcSymbolInfo>;
-  function  InstrumentFunction(strName : String; nLine : Integer; pProcAddr : PByte; nSize : Cardinal; pAnchor : PProfileAnchor): Boolean;
+  procedure InstrumentModuleProcs;
   procedure InstrumentProcs(lstProcs : TList<TInstrumentedProc>);
   function  ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
   procedure PatchProcedure(ptrProcAddr : PByte; ptrNewProcAddr : PByte);
   procedure HookedExceptionHandler;
-  function  LoadModuleProcDebugInfoForModule(Module : HMODULE; var Image : TJclPeBorTD32Image): TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
 
   procedure PrintDebugStack(ExceptionInfo : PEXCEPTION_POINTERS);
   procedure PrintRegisters(ExceptionInfo : PEXCEPTION_POINTERS);
   procedure PrintDebugFullStack;
-
-const
-  c_nModuleCodeOffset = $1000;
 
 implementation
 uses
   Utils,
   JclPeImage,
   psAPI,
+  CoreProfiler,
   JCLDebug,
   RTTI,
   Classes,
   Character,
   SysUtils,
   StrUtils;
+
+const
+  c_nModuleCodeOffset = $1000;
 
 var
   AddVectoredExceptionHandler : function (nFirst : ULONG; pHandler : Pointer): PVOID; stdcall;
@@ -677,6 +676,89 @@ begin
     end
   else
     LogDebug('Fail to Patch procedure',[]);
+end;
+
+procedure InstrumentModuleProcs;
+var
+  dcProcsByModule : TDictionary<String, TList<TJclTD32ProcSymbolInfo>>;
+  lstProcs  : TList<TJclTD32ProcSymbolInfo>;
+  Image     : TJclPeBorTD32Image;
+  procInfo  : TJclTD32ProcSymbolInfo;
+  pProcAddr : Pointer;
+  Module    : HMODULE;
+  modInfo   : MODULEINFO;
+  strName   : String;
+  nLowProc  : Uint64;
+  nHighProc : Uint64;
+  nSize     : Uint64;
+  nLastAddr : Uint64;
+  pDhTable  : Pointer;
+  nIndex    : Integer;
+begin
+  if not g_bUdisLoaded then
+    Exit;
+
+  OutputDebugString('------------------- Instrumenting Module procedures ---------------------');
+
+  Module := GetModuleHandle(nil);
+  dcProcsByModule := LoadModuleProcDebugInfoForModule(Module, Image);
+  GetModuleInformation(GetCurrentProcess, Module, @modInfo, sizeof(modInfo));
+
+  if (dcProcsByModule <> nil) and dcProcsByModule.TryGetValue('AntiPessimizerDelphi', lstProcs) then
+    begin
+      // Find lowest and highest address to make the hash table
+      nLowProc := $FFFFFFFFFFFFFFFF;
+      nHighProc := 0;
+      for procInfo in lstProcs do
+        begin
+          pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
+
+          if Uint64(pProcAddr) < nLowProc then
+            nLowProc := Uint64(pProcAddr);
+          if Uint64(pProcAddr) > nHighProc then
+            nHighProc := Uint64(pProcAddr);
+        end;
+
+      // After finding it allocate the memory needed
+      if (nLowProc <> $FFFFFFFFFFFFFFFF) and (nHighProc <> 0) and (nHighProc > nLowProc) then
+        begin
+          nSize := nHighProc - nLowProc;
+          pDhTable := AllocMem(nSize + 2 * sizeof(TProfileAnchor));
+          pDhTable := PByte(pDhTable) + sizeof(TProfileAnchor);
+          ZeroMemory(pDhTable, nSize + 2 * sizeof(TProfileAnchor));
+          InitializeDHProfilerTable(pDhTable, Int64(pDhTable) - Int64(nLowProc));
+
+          SetLength(g_DHArrProcedures, lstProcs.Count);
+          ZeroMemory(@g_DHArrProcedures[0], Length(g_DHArrProcedures) * sizeof(g_DHArrProcedures[0]));
+
+          nLastAddr := $7FFFFFFFFFFFFFFF;
+          for nIndex := lstProcs.Count-1 downto 0 do
+            begin
+              procInfo := lstProcs[nIndex];
+              pProcAddr := PByte(Uint64(modInfo.lpBaseOfDll) + procInfo.Offset + c_nModuleCodeOffset);
+              strName := String(Image.TD32Scanner.Names[procInfo.NameIndex]);
+
+              if not strName.StartsWith('_ZN20Antipessimizerdelphi') then
+                Continue;
+
+              if (nLastAddr - Uint64(pProcAddr)) >= sizeof(TProfileAnchor) then
+                begin
+                  g_DHArrProcedures[nIndex] := pProcAddr;
+
+                  OutputDebugString(PWidechar('Instrumenting function ' + strName + '{' + IntToStr(nIndex) + '}'));
+                  if not InstrumentFunction(strName, 0, pProcAddr, procInfo.Size, PProfileAnchor(Int64(pDhTable) + Int64(pProcAddr) - Int64(nLowProc))) then
+                    g_DHArrProcedures[nIndex] := nil;
+                end
+              else
+                begin
+                  OutputDebugString(PWidechar('Could not instrument function ' + strName + ' too small ' + Uint64(pProcAddr).ToString + ' ' + nLastAddr.ToString));
+                end;
+
+              nLastAddr := UInt64(pProcAddr);
+            end;
+        end;
+    end;
+  OutputDebugString('End of instrumentation');
 end;
 
 procedure PrintRegisters(ExceptionInfo : PEXCEPTION_POINTERS);
