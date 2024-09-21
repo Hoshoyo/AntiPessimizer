@@ -1,5 +1,8 @@
 #pragma once
 #include "os.h"
+extern "C" {
+#include "string_utils.h"
+}
 
 #define MAX_INPUT 128
 
@@ -12,6 +15,8 @@ typedef struct {
 	bool realtime_results;
 
 	int32_t selected_thread_id;
+
+	String* loaded_units;
 } Gui_State;
 
 void gui_render(Gui_State* gui);

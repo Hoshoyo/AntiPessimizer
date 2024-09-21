@@ -56,6 +56,8 @@ struct Antipessimizer {
     ProfilingResults prof_results;
 
     ModuleTable module_table;
+
+    String* preselected_units;
 };
 
 static Antipessimizer antip;
@@ -142,6 +144,17 @@ typedef struct {
     uint32_t flags;
 } TThreadName;
 
+static HANDLE
+find_thread(Antipessimizer* antip, uint32_t id)
+{
+    for (int i = 0; i < array_length(antip->remote_threads); ++i)
+    {
+        if (antip->remote_threads[i].id == id)
+            return antip->remote_threads[i].handle;
+    }
+    return INVALID_HANDLE_VALUE;
+}
+
 void
 antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_event)
 {
@@ -197,18 +210,21 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
             case EXCEPTION_ACCESS_VIOLATION: {
                 dwContinueStatus = DBG_EXCEPTION_NOT_HANDLED;
 
-                DWORD tid = GetThreadId(antip->process_info.hThread);
+                HANDLE exception_thread = find_thread(antip, dbg_event.dwThreadId);
 
-                CONTEXT thctx = { 0 };
-                thctx.ContextFlags = CONTEXT_ALL;
-                if (GetThreadContext(antip->process_info.hThread, &thctx))
+                if (exception_thread != INVALID_HANDLE_VALUE)
                 {
-                    char bytes[64] = { 0 };
-                    SIZE_T read_bytes = 0;
-                    if (ReadProcessMemory(antip->process_info.hProcess,
-                        dbg_event.u.Exception.ExceptionRecord.ExceptionAddress, bytes, sizeof(bytes), &read_bytes))
+                    CONTEXT thctx = { 0 };
+                    thctx.ContextFlags = CONTEXT_ALL;
+                    if (GetThreadContext(exception_thread, &thctx))
                     {
-                        int x = 0;                        
+                        char bytes[64] = { 0 };
+                        SIZE_T read_bytes = 0;
+                        if (ReadProcessMemory(antip->process_info.hProcess,
+                            dbg_event.u.Exception.ExceptionRecord.ExceptionAddress, bytes, sizeof(bytes), &read_bytes))
+                        {
+                            int x = 0;
+                        }
                     }
                 }
             } break;
@@ -387,7 +403,7 @@ antipessimizer_debug_thread(LPVOID param)
 }
 
 int
-antipessimizer_load_exe(const char* filepath)
+antipessimizer_load_exe(const char* filepath, String* preselected)
 {
     if (antip.debugging)
     {
@@ -404,6 +420,8 @@ antipessimizer_load_exe(const char* filepath)
     antip.debugged_thread = CreateThread(0, 0, antipessimizer_debug_thread, (LPVOID)filepath, 0, &antip.dbg_thread_id);
     if (antip.debugged_thread == INVALID_HANDLE_VALUE)
         return -1;
+
+    antip.preselected_units = preselected;
 
     return 0;
 }
@@ -744,6 +762,24 @@ process_modules_message(uint8_t* msg, int size)
     }
 
     sort_modules(antip.module_table.modules);
+
+    if (antip.preselected_units && array_length(antip.preselected_units) > 0)
+    {
+        for (int k = 0; k < array_length(antip.preselected_units); ++k)
+        {
+            for (int i = 0; i < array_length(antip.module_table.modules); ++i)
+            {
+                ExeModule* em = antip.module_table.modules + i;
+
+                if (string_equal(em->name, antip.preselected_units[k]))
+                {
+                    em->flags |= EXE_MODULE_SELECTED;
+                }
+            }
+        }
+        array_free(antip.preselected_units);
+        antip.preselected_units = 0;
+    }
 }
 
 void

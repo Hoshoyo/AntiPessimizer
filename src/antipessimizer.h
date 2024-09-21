@@ -54,7 +54,7 @@ typedef struct {
 
 void  antipessimizer_init();
 int   antipessimizer_start(const char* filepath);
-int   antipessimizer_load_exe(const char* filepath);
+int   antipessimizer_load_exe(const char* filepath, String* preselected);
 void  antipessimizer_request_result();
 void* antipessimizer_read_pipe_message();
 int   antipessimizer_stop();

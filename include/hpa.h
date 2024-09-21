@@ -35,6 +35,8 @@ int      hpa_parse_until_eol_length(const char** stream, int length);
 int      hpa_parse_keyword(const char** stream, const char* keyword);
 int      hpa_parse_keyword_length(const char** stream, int length, const char* keyword);
 
+int      hpa_parse_until_char(const char** stream, char c);
+
 #ifdef HPA_IMPLEMENTATION
 
 static int
@@ -789,6 +791,18 @@ hpa_parse_until_eol(const char** stream)
 	const char* at = *stream;
 
 	while (*at++ != '\n');
+
+	int length = (int)(at - *stream);
+	*stream = at;
+	return length;
+}
+
+int
+hpa_parse_until_char(const char** stream, char c)
+{
+	const char* at = *stream;
+
+	while (*at++ != c);
 
 	int length = (int)(at - *stream);
 	*stream = at;

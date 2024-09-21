@@ -123,7 +123,7 @@ gui_selection_window(Gui_State* gui)
         ImGui::SameLine();
         if (ImGui::Button("Load Executable") && file_exists(gui->process_filepath))
         {
-            antipessimizer_load_exe(gui->process_filepath);
+            antipessimizer_load_exe(gui->process_filepath, gui->loaded_units);
         }
         ImGui::SameLine();
         if (ImGui::Button("Run") && file_exists(gui->process_filepath))
@@ -511,6 +511,8 @@ gui_results(Gui_State* gui)
                 
                 clipper.Begin(array_length(anchors));
 
+                bool changed_selection = false;
+
                 while (clipper.Step())
                 {
                     for (int row_n = clipper.DisplayStart; row_n < clipper.DisplayEnd; row_n++)
@@ -579,28 +581,28 @@ gui_results(Gui_State* gui)
                         ImGui::TableNextColumn();
                         String thread_name = antipessimizer_get_thread_name(item->thread_id);
                         bool selected = gui->selected_thread_id == item->thread_id;
+
+                        bool prev_selected = selected;
+                        
                         if (thread_name.length > 0)
                         {
-                            if (ImGui::Selectable(thread_name.data, &selected, ImGuiSelectableFlags_None))
-                            {
-                                if (selected)
-                                    gui->selected_thread_id = item->thread_id;
-                                else
-                                    gui->selected_thread_id = -1;
-                            }
+                            ImGui::Selectable(thread_name.data, &selected, ImGuiSelectableFlags_None);
                         }
                         else
                         {
                             char bf[32] = { 0 };
                             sprintf(bf, "%d", item->thread_id);
                             ImGui::Selectable(bf, &selected, ImGuiSelectableFlags_None);
-                            {
-                                if (selected)
-                                    gui->selected_thread_id = item->thread_id;
-                                else
-                                    gui->selected_thread_id = -1;
-                            }
-                        }                        
+                        }
+
+                        if (!changed_selection && prev_selected != selected)
+                        {
+                            if (selected)
+                                gui->selected_thread_id = item->thread_id;
+                            else
+                                gui->selected_thread_id = -1;
+                        }
+
                         ImGui::PopID();
                     }
                 }
@@ -617,6 +619,8 @@ gui_results(Gui_State* gui)
 void
 gui_load_config(Gui_State* gui)
 {
+    gui->loaded_units = array_new(String);
+
     int64_t fsize = 0;
     char* data = (char*)os_file_read("antipessimizer.config", &fsize);
     if (data)
@@ -648,6 +652,24 @@ gui_load_config(Gui_State* gui)
             gui->unit_filter[i++] = *at++;
         at++;
         hpa_parse_whitespace(&at);
+
+        if (hpa_parse_keyword(&at, "SelectedModules:"))
+        {
+            hpa_parse_whitespace(&at);
+
+            at++;
+            char c = *at;
+            while (c != ']' && c != '\0' && c != '\n')
+            {
+                String s;
+                s.data = (char*)at;
+                s.length = hpa_parse_until_char(&at, ',') - 1;
+                array_push(gui->loaded_units, s);
+                c = *at;
+                if (s.length == 0)
+                    break;
+            }
+        }
     }
     else
         printf("Config file not found\n");
@@ -706,5 +728,20 @@ gui_save_config(Gui_State* gui)
     fprintf(config, "Filepath: '%s'\n", gui->process_filepath);
     fprintf(config, "ResultFilter: '%s'\n", gui->result_filter);
     fprintf(config, "UnitFilter: '%s'\n", gui->unit_filter);
+    fprintf(config, "SelectedModules: [");
+
+    ModuleTable* modtable = antipessimizer_get_module_table();
+    
+    for (int i = 0; i < array_length(modtable->modules); ++i) 
+    {
+        ExeModule* em = modtable->modules + i;
+
+        bool selected = em->flags & EXE_MODULE_SELECTED;
+        if (selected)
+        {
+            fprintf(config, "%.*s,", (uint32_t)em->name.length, em->name.data);
+        }
+    }
+    fprintf(config, "]");
     fclose(config);
 }
