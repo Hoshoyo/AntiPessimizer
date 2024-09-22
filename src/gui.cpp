@@ -1,4 +1,4 @@
-#define _CRT_SECURE_NO_WARNINGS
+﻿#define _CRT_SECURE_NO_WARNINGS
 #include "gui.h"
 #include "antipessimizer.h"
 
@@ -98,6 +98,10 @@ gui_selection_window(Gui_State* gui)
                 antipessimizer_request_result();
             }
         }
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(100.0f);
+        ImGui::DragInt("Cycle discount", (int*)&gui->fixed_cycle_discount, 1.0f, 0, 1000, "%d", ImGuiSliderFlags_None);
 
         if (gui->realtime_results)
             antipessimizer_request_result();
@@ -316,6 +320,40 @@ static sort_algo_t* sort_algorithms[] = {
     compare_anchor_hitcount,
 };
 
+static double
+gui_cycles_to_unit(Gui_State* gui, uint64_t cycles, uint64_t cycles_per_second, uint64_t hitcount)
+{
+    uint64_t cycle_discount = gui->fixed_cycle_discount * hitcount;
+    if (cycle_discount > cycles)
+        cycle_discount = cycles;
+
+    switch (gui->time_unit)
+    {
+        case UNIT_NANOSECONDS:  return cycles_to_ns(cycles - cycle_discount, cycles_per_second);
+        case UNIT_MICROSECONDS: return cycles_to_us(cycles - cycle_discount, cycles_per_second);
+        case UNIT_SECONDS:      return cycles_to_s(cycles - cycle_discount, cycles_per_second);
+        case UNIT_CYCLES:       return cycles - cycle_discount;
+        default:
+        case UNIT_MILLISECONDS: return cycles_to_ms(cycles - cycle_discount, cycles_per_second);
+    }
+
+    return (double)(cycles - (cycle_discount * hitcount));
+}
+
+static const char*
+gui_time_unit_to_string(TimeUnit unit)
+{
+    switch (unit)
+    {
+        case UNIT_NANOSECONDS:  return "Nanoseconds";
+        case UNIT_MICROSECONDS: return "Microseconds";
+        case UNIT_MILLISECONDS: return "Milliseconds";
+        case UNIT_SECONDS:      return "Seconds";
+        case UNIT_CYCLES:       return "Cycles";
+        default: return "Invalid";
+    }
+}
+
 void
 gui_results(Gui_State* gui)
 {
@@ -329,11 +367,18 @@ gui_results(Gui_State* gui)
 
     if (ImGui::Begin("Results Sorted"))
     {
+        ImGui::SetNextItemWidth(200);
+        ImGui::Combo("Unit of time", (int*)&gui->time_unit, "Nanoseconds\0Microseconds\0Milliseconds\0Seconds\0Cycles\0\0");
+
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(400);
         char rs_buf[64] = { 0 };
-        ImGui::InputText("Filter", gui->result_filter, sizeof(gui->result_filter));
+        ImGui::InputText("Filter", gui->result_filter, sizeof(gui->result_filter));        
+
         ImGui::SameLine();
         if (ImGui::Button("Clear Thread Filter"))
             gui->selected_thread_id = -1;
+
         if (ImGui::BeginTable("table_sorting", 7, flags))
         {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_DefaultSort, 0.0f, RESULT_COL_NAME);
@@ -506,19 +551,19 @@ gui_results(Gui_State* gui)
                             ImGui::Text("0x%llx", item->address);
                         ImGui::TableNextColumn();
 
-                        ImGui::TextColored(color_exclusive, "%.4f", cycles_to_ms(anchors[row_n].elapsed_exclusive, cycles_per_sec));
+                        ImGui::TextColored(color_exclusive, "%.4f", gui_cycles_to_unit(gui, anchors[row_n].elapsed_exclusive, cycles_per_sec, anchors[row_n].hitcount));
                         ImGui::TableNextColumn();
                         double average_exclusive = 0.0;
                         if(anchors[row_n].hitcount > 0)
-                            average_exclusive = cycles_to_ms(anchors[row_n].elapsed_exclusive, cycles_per_sec) / anchors[row_n].hitcount;
+                            average_exclusive = gui_cycles_to_unit(gui, anchors[row_n].elapsed_exclusive, cycles_per_sec, anchors[row_n].hitcount) / anchors[row_n].hitcount;
                         ImGui::TextColored(color_avg_exclusive, "%.4f", average_exclusive);
                         ImGui::TableNextColumn();
                         
-                        ImGui::TextColored(color_inclusive, "%.4f", cycles_to_ms(anchors[row_n].elapsed_inclusive, cycles_per_sec));
+                        ImGui::TextColored(color_inclusive, "%.4f", gui_cycles_to_unit(gui, anchors[row_n].elapsed_inclusive, cycles_per_sec, anchors[row_n].hitcount));
                         ImGui::TableNextColumn();
                         double average_inclusive = 0.0;
                         if (anchors[row_n].hitcount > 0)
-                            average_inclusive = cycles_to_ms(anchors[row_n].elapsed_inclusive, cycles_per_sec) / anchors[row_n].hitcount;
+                            average_inclusive = gui_cycles_to_unit(gui, anchors[row_n].elapsed_inclusive, cycles_per_sec, anchors[row_n].hitcount) / anchors[row_n].hitcount;
                         ImGui::TextColored(color_avg_inclusive, "%.4f", average_inclusive);
                         ImGui::TableNextColumn();
 
@@ -592,7 +637,43 @@ gui_load_config(Gui_State* gui)
         at++;
         i = 0;
         while (*at != '\'' && i < ARRAY_LENGTH(gui->unit_filter))
-            gui->unit_filter[i++] = *at++;        
+            gui->unit_filter[i++] = *at++;
+        at++;
+        hpa_parse_whitespace(&at);
+
+        if (at < data + fsize)
+        {
+            if (hpa_parse_keyword(&at, "TimeUnit:"))
+            {
+                hpa_parse_whitespace(&at);
+                int tunit_len = hpa_parse_identifier(at);
+                String ts = tmp_str_new_len_c((char*)at, tunit_len);
+                if (string_equal_char((char*)"Nanoseconds", ts))
+                    gui->time_unit = UNIT_NANOSECONDS;
+                else if (string_equal_char((char*)"Microseconds", ts))
+                    gui->time_unit = UNIT_MICROSECONDS;
+                else if (string_equal_char((char*)"Milliseconds", ts))
+                    gui->time_unit = UNIT_MILLISECONDS;
+                else if (string_equal_char((char*)"Seconds", ts))
+                    gui->time_unit = UNIT_SECONDS;
+                at += tunit_len;
+            }
+        }
+
+        hpa_parse_whitespace(&at);
+        if (at < data + fsize)
+        {
+            if (hpa_parse_keyword(&at, "FixedCycleDiscount:"))
+            {
+                hpa_parse_whitespace(&at);
+
+                gui->fixed_cycle_discount = hpa_parse_uint64(&at);
+            }
+        }
+        else
+        {
+            gui->fixed_cycle_discount = 262;
+        }
     }
     else
         printf("Config file not found\n");
@@ -631,6 +712,9 @@ gui_init(Gui_State* gui)
     gui->process_filepath[0] = 0;
     gui->unit_filter[0] = 0;
     gui->realtime_results = false;
+    gui->time_unit = UNIT_MILLISECONDS;
+    gui->fixed_cycle_discount = 0;
+
     gui_load_config(gui);
 
     // Setup Dear ImGui context
@@ -676,5 +760,7 @@ gui_save_config(Gui_State* gui)
     fprintf(config, "Filepath: '%s'\n", gui->process_filepath);
     fprintf(config, "ResultFilter: '%s'\n", gui->result_filter);
     fprintf(config, "UnitFilter: '%s'\n", gui->unit_filter);
+    fprintf(config, "TimeUnit: %s\n", gui_time_unit_to_string(gui->time_unit));
+    fprintf(config, "FixedCycleDiscount: %llu\n", gui->fixed_cycle_discount);
     fclose(config);
 }

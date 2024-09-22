@@ -24,6 +24,10 @@ typedef struct {
 
 bool file_exists(const char* path);
 double cycles_to_ms(uint64_t cycles, uint64_t cycles_per_second);
+double cycles_to_us(uint64_t cycles, uint64_t cycles_per_second);
+double cycles_to_ns(uint64_t cycles, uint64_t cycles_per_second);
+double cycles_to_s(uint64_t cycles, uint64_t cycles_per_second);
+
 void os_browse_file(char* buffer, int size);
 uint32_t os_file_write(const char* filename, void* mem, uint32_t size);
 uint32_t os_file_append(const char* filename, void* mem, uint32_t size);

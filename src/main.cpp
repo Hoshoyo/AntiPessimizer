@@ -60,6 +60,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ShowWindow(hwnd, SW_SHOWDEFAULT);
     UpdateWindow(hwnd);
 
+    wstring_init_globals();
+    string_init_globals();
+
     Gui_State gui = {};
 
     antipessimizer_init();
@@ -71,8 +74,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-    wstring_init_globals();
-    string_init_globals();
 
     DragAcceptFiles(hwnd, TRUE);
 

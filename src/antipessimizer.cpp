@@ -258,8 +258,8 @@ remote_trace_stack(Antipessimizer* antip, int32_t pstack_index)
 
     if (ReadProcessMemory(antip->process_info.hProcess, &ps->at_index, &at_index, sizeof(at_index), &read_bytes))
     {
-        while (at_index > 0)
-        {            
+        for (int k = 0; k < 100 && at_index > 0; ++k, --at_index)
+        {
             TDHProfileBlock read_block = { 0 };
             TDHProfileBlock* block = ps->blocks + at_index;
             if (!ReadProcessMemory(antip->process_info.hProcess, block, &read_block, sizeof(read_block), &read_bytes))
@@ -269,8 +269,6 @@ remote_trace_stack(Antipessimizer* antip, int32_t pstack_index)
 
             LocationInfo loc = find_proc_name(antip, (char*)ret_addr);
             print_log(&antip->logbuffer, " | %p %.*s.%.*s\n", ret_addr, loc.module_name.length, loc.module_name.data, loc.proc_name.length, loc.proc_name.data);
-
-            at_index--;
         }
     }
 }

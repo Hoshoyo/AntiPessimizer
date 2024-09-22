@@ -15,6 +15,24 @@ cycles_to_ms(uint64_t cycles, uint64_t cycles_per_second)
     return ((double)cycles / (double)cycles_per_second) * 1000.0;
 }
 
+double
+cycles_to_us(uint64_t cycles, uint64_t cycles_per_second)
+{
+	return ((double)cycles / (double)cycles_per_second) * 1000000.0;
+}
+
+double
+cycles_to_ns(uint64_t cycles, uint64_t cycles_per_second)
+{
+	return ((double)cycles / (double)cycles_per_second) * 10000000000.0;
+}
+
+double
+cycles_to_s(uint64_t cycles, uint64_t cycles_per_second)
+{
+	return ((double)cycles / (double)cycles_per_second);
+}
+
 void
 os_browse_file(char* buffer, int size)
 {
