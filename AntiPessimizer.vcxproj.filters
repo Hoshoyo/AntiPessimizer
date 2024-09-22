@@ -48,6 +48,9 @@
     <ClCompile Include="src\os.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\colors.h">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\imgui\imconfig.h">
@@ -105,6 +108,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\gui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\log.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

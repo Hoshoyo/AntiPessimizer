@@ -21,8 +21,17 @@ extern "C" {
 }
 
 #include "antipessimizer.h"
+#include "log.h"
 
 #define MEGABYTE (1024*1024)
+
+struct TThrTranslate {
+    void* epilogue_jmp;
+    void** last_hook_jmp;
+    int    thread_index;
+    int    res;
+    void* patch_rsp;
+};
 
 struct Antipessimizer {
     bool loaded_necessary_inject_dlls = false;
@@ -57,7 +66,44 @@ struct Antipessimizer {
 
     ModuleTable module_table;
 
+    TThrTranslate* remote_thread_translate;
+    void* remote_profile_stack;
+    uint32_t remote_thread_translate_size;
+    uint32_t remote_profile_stack_size;
+
     String* preselected_units;
+
+    CircularBuffer logbuffer;
+};
+
+#define c_ProfilerStackSize (1024*128)
+
+struct TProfileAnchor {
+    uint64_t nElapsedExclusive;
+    uint64_t nElapsedInclusive;
+    uint64_t nHitCount;
+    void*    ptrNextAnchors;
+    int32_t  nThreadID;
+    int32_t  nLine;
+    void*    strName;
+    void*    pAddr;
+};
+
+struct TDHProfileBlock {
+    TProfileAnchor* parent_anchor;
+    TProfileAnchor* anchor;
+    uint64_t        start_time;
+    uint64_t        prev_time_inclusive;
+    void*           ptr_return_target;
+    void*           ptr_last_hook_jmp;
+};
+
+struct TDHProfilerStack {
+    TDHProfileBlock blocks[c_ProfilerStackSize];
+    int64_t  addr_offset;
+    int32_t  at_index;
+    uint32_t thread_id;
+    bool     unwinding;
 };
 
 static Antipessimizer antip;
@@ -155,6 +201,122 @@ find_thread(Antipessimizer* antip, uint32_t id)
     return INVALID_HANDLE_VALUE;
 }
 
+static int32_t
+find_profiler_stack_index(Antipessimizer* antip, uint32_t thread_id)
+{
+    TThrTranslate translate = { 0 };
+    SIZE_T read_bytes = 0;
+    if (ReadProcessMemory(antip->process_info.hProcess,
+        (char*)antip->remote_thread_translate + thread_id * antip->remote_thread_translate_size, &translate, sizeof(translate), &read_bytes))
+    {
+        return translate.thread_index;
+    }
+    return -1;
+}
+
+struct LocationInfo {
+    bool   valid;
+    String proc_name;
+    String module_name;
+};
+
+static LocationInfo
+find_proc_name(Antipessimizer* antip, char* addr)
+{
+    MEMORY_BASIC_INFORMATION meminfo = { 0 };
+    VirtualQueryEx(antip->process_info.hProcess, addr, &meminfo, sizeof(meminfo));
+
+    for (int i = 0; i < array_length(antip->module_table.modules); ++i)
+    {
+        InstrumentedProcedure* procs = antip->module_table.modules[i].procedures;
+        if (procs && array_length(procs) > 0)
+        {
+            for (int p = 0; p < array_length(procs); ++p)
+            {
+                uint32_t offset = procs[p].offset + 0x1000;
+                char* va = (char*)meminfo.AllocationBase + offset;
+                uint32_t size = procs[p].size;
+
+                if (addr >= va && addr < (va + size))
+                {
+
+                    return { true, procs[p].demangled_name, antip->module_table.modules[i].name };
+                }
+            }
+        }
+    }
+    return { 0 };
+}
+
+static void
+remote_trace_stack(Antipessimizer* antip, int32_t pstack_index)
+{
+    int32_t at_index = -1;
+
+    SIZE_T read_bytes = 0;
+    TDHProfilerStack* ps = (TDHProfilerStack*)((char*)antip->remote_profile_stack + antip->remote_profile_stack_size * pstack_index);
+
+    if (ReadProcessMemory(antip->process_info.hProcess, &ps->at_index, &at_index, sizeof(at_index), &read_bytes))
+    {
+        while (at_index > 0)
+        {            
+            TDHProfileBlock read_block = { 0 };
+            TDHProfileBlock* block = ps->blocks + at_index;
+            if (!ReadProcessMemory(antip->process_info.hProcess, block, &read_block, sizeof(read_block), &read_bytes))
+                break;
+
+            void* ret_addr = read_block.ptr_return_target;
+
+            LocationInfo loc = find_proc_name(antip, (char*)ret_addr);
+            print_log(&antip->logbuffer, " | %p %.*s.%.*s\n", ret_addr, loc.module_name.length, loc.module_name.data, loc.proc_name.length, loc.proc_name.data);
+
+            at_index--;
+        }
+    }
+}
+
+static void
+dump_context(CircularBuffer* logbuffer, CONTEXT* ctx)
+{    
+    print_log(logbuffer, " - gp registers: ");
+    print_log(logbuffer, " RAX: 0x%llx", ctx->Rax);
+    print_log(logbuffer, " RBX: 0x%llx", ctx->Rbx);
+    print_log(logbuffer, " RCX: 0x%llx", ctx->Rcx);
+    print_log(logbuffer, " RDX: 0x%llx", ctx->Rdx);
+    print_log(logbuffer, " RSP: 0x%llx", ctx->Rsp);
+    print_log(logbuffer, " RBP: 0x%llx", ctx->Rbp);
+    print_log(logbuffer, " RSI: 0x%llx", ctx->Rsi);
+    print_log(logbuffer, " RDI: 0x%llx", ctx->Rdi);
+    print_log(logbuffer, " R8: 0x%llx",  ctx->R8);
+    print_log(logbuffer, " R9: 0x%llx",  ctx->R9);
+    print_log(logbuffer, " R10: 0x%llx", ctx->R10);
+    print_log(logbuffer, " R11: 0x%llx", ctx->R11);
+    print_log(logbuffer, " R12: 0x%llx", ctx->R12);
+    print_log(logbuffer, " R13: 0x%llx", ctx->R13);
+    print_log(logbuffer, " R14: 0x%llx", ctx->R14);
+    print_log(logbuffer, " R15: 0x%llx", ctx->R15);
+    print_log(logbuffer, " EFLAGS: 0x%llx", ctx->EFlags);
+    print_log(logbuffer, "\n");    
+}
+
+static const char*
+access_violation_string(ULONG_PTR value)
+{
+    switch (value)
+    {
+        case 0: return "reading";
+        case 1: return "writing";
+        case 8: return "executing";
+        default: return "-";
+    }
+}
+
+CircularBuffer*
+antipessimizer_get_logbuffer()
+{
+    return &antip.logbuffer;
+}
+
 void
 antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_event)
 {
@@ -181,7 +343,7 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                         {
                             String dbg_name = ustr_new_c(bytes);
                             antip->remote_threads[i].debug_name = dbg_name;
-                            printf("Named thread %d as %s\n", dbg_event.dwThreadId, dbg_name.data);
+                            print_log(&antip->logbuffer, "Named thread %d as %s\n", dbg_event.dwThreadId, dbg_name.data);
                             break;
                         }
                     }
@@ -210,7 +372,21 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
             case EXCEPTION_ACCESS_VIOLATION: {
                 dwContinueStatus = DBG_EXCEPTION_NOT_HANDLED;
 
+                print_log(&antip->logbuffer, "Access violation %s location: 0x%p\n", access_violation_string(dbg_event.u.Exception.ExceptionRecord.ExceptionInformation[0]), dbg_event.u.Exception.ExceptionRecord.ExceptionAddress);
+
                 HANDLE exception_thread = find_thread(antip, dbg_event.dwThreadId);
+
+                int32_t pstack_index = find_profiler_stack_index(antip, dbg_event.dwThreadId);
+                if (pstack_index != -1)
+                {
+                    // Trace information for the location
+                    LocationInfo loc = find_proc_name(antip, (char*)dbg_event.u.Exception.ExceptionRecord.ExceptionAddress);
+                    print_log(&antip->logbuffer, " | %p %.*s.%.*s\n", dbg_event.u.Exception.ExceptionRecord.ExceptionAddress, 
+                            loc.module_name.length, loc.module_name.data, loc.proc_name.length, loc.proc_name.data);
+
+                    // Attempt to get the stack trace information for the profiler.
+                    remote_trace_stack(antip, pstack_index);
+                }
 
                 if (exception_thread != INVALID_HANDLE_VALUE)
                 {
@@ -218,6 +394,8 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
                     thctx.ContextFlags = CONTEXT_ALL;
                     if (GetThreadContext(exception_thread, &thctx))
                     {
+                        dump_context(&antip->logbuffer, &thctx);
+
                         char bytes[64] = { 0 };
                         SIZE_T read_bytes = 0;
                         if (ReadProcessMemory(antip->process_info.hProcess,
@@ -334,6 +512,22 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
             {
                 send_procedures_request(antip);
             }
+
+            klen = hpa_parse_keyword(&at, "AntipessimizerInitProfilingTable");
+            if (klen > 0)
+            {
+                hpa_parse_whitespace(&at);
+                hpa_parse_keyword(&at, "ThreadTranslate=");
+                antip->remote_thread_translate = (TThrTranslate*)hpa_parse_uint64_hex(&at);
+                at++;
+                antip->remote_thread_translate_size = hpa_parse_int32(&at);
+
+                hpa_parse_whitespace(&at);
+                hpa_parse_keyword(&at, "ProfileStack=");
+                antip->remote_profile_stack = (void*)hpa_parse_uint64_hex(&at);
+                at++;
+                antip->remote_profile_stack_size = hpa_parse_int32(&at);
+            }
         } break;
         case EXIT_PROCESS_DEBUG_EVENT: {
             printf("Process terminated with exit code %x\n", dbg_event.u.ExitProcess.dwExitCode);
@@ -364,6 +558,7 @@ antipessimizer_process_next_debug_event(Antipessimizer* antip, DEBUG_EVENT& dbg_
         } break;
         default: break;
     }
+
     ContinueDebugEvent(dbg_event.dwProcessId,
         dbg_event.dwThreadId,
         dwContinueStatus);
@@ -452,6 +647,28 @@ antipessimizer_stop()
 }
 
 void
+antipessimizer_save_modules_selected()
+{
+    FILE* config = fopen("antipessimizer.modules", "wb");
+    fprintf(config, "SelectedModules: [");
+
+    ModuleTable* modtable = &antip.module_table;
+
+    for (int i = 0; i < array_length(modtable->modules); ++i)
+    {
+        ExeModule* em = modtable->modules + i;
+
+        bool selected = em->flags & EXE_MODULE_SELECTED;
+        if (selected)
+        {
+            fprintf(config, "%.*s,", (uint32_t)em->name.length, em->name.data);
+        }
+    }
+    fprintf(config, "]");
+    fclose(config);
+}
+
+void
 antipessimizer_clear()
 {
     if (antip.should_clear)
@@ -460,6 +677,8 @@ antipessimizer_clear()
 
         if (antip.module_table.modules)
         {
+            antipessimizer_save_modules_selected();
+
             for (int i = 0; i < array_length(antip.module_table.modules); ++i)
             {
                 if (antip.module_table.modules[i].procedures)
@@ -518,6 +737,10 @@ antipessimizer_init()
         antip.send_buffer = calloc(64, MEGABYTE);
     if (antip.recv_buffer == 0)
         antip.recv_buffer = arena_create(64 * MEGABYTE);
+
+    antip.logbuffer = alloc_circular_buffer(1024 * 32, 3);
+    antip.logbuffer.data = antip.logbuffer.base + antip.logbuffer.count;
+    antip.logbuffer.at = antip.logbuffer.data;
 }
 
 int
@@ -554,7 +777,7 @@ antipessimizer_save_results()
     if (!prof->anchors)
         return;
 
-    Light_Arena* str_arena = arena_create(1024 * 1024);
+    Light_Arena* str_arena = arena_create(MEGABYTE);
     char* str_arena_start = (char*)str_arena->ptr;
 
     ProfileAnchor* anchors = array_new(ProfileAnchor);

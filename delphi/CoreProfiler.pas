@@ -142,6 +142,7 @@ begin
   For nIndex := 0 to Length(g_ThreadTranslateT)-1 do
     g_ThreadTranslateT[nIndex].nThreadIndex := -1;
   LogDebug('### InitializeDHProfilerTable ### OffsetFromModuleBase=%x', [nOffsetFromModuleBase]);
+  LogDebug('AntipessimizerInitProfilingTable ThreadTranslate=%p|%d ProfileStack=%p|%d', [@g_ThreadTranslateT[0], sizeof(TThrTranslate), @g_DHProfileStack[0], sizeof(TDHProfilerStack)]);
 end;
 
 function FindAnchor(bundle : PAnchorBundle; nIndex : Cardinal): PProfileAnchor;

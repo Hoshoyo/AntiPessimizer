@@ -140,6 +140,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\antipessimizer.cpp" />
+    <ClCompile Include="src\colors.h" />
     <ClCompile Include="src\gui.cpp" />
     <ClCompile Include="src\imgui\imgui.cpp" />
     <ClCompile Include="src\imgui\imgui_draw.cpp" />
@@ -169,6 +170,7 @@
     <ClInclude Include="src\imgui\imstb_rectpack.h" />
     <ClInclude Include="src\imgui\imstb_textedit.h" />
     <ClInclude Include="src\imgui\imstb_truetype.h" />
+    <ClInclude Include="src\log.h" />
     <ClInclude Include="src\os.h" />
     <ClInclude Include="src\string_utils.h" />
   </ItemGroup>

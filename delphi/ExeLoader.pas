@@ -870,11 +870,6 @@ end;
 
 function ExceptionHandler(ExceptionInfo : PEXCEPTION_POINTERS): LONG; stdcall;
 begin
-  //LogDebug('Exception at %p code: %x Thread: %d', [ExceptionInfo.ExceptionRecord.ExceptionAddress, ExceptionInfo.ExceptionRecord.ExceptionCode, GetCurrentThreadID]);
-  //SendMessage(g_AntipessimizerGuiWindow, 1024, $FFFFFFFF, 0);
-
-  //PrintDebugStack(ExceptionInfo);
-
   DHUnwindEveryStack;
 
   Result := 0;
