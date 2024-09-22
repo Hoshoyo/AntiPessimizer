@@ -62,6 +62,7 @@ void  antipessimizer_clear();
 int   antipessimizer_clear_results();
 void  antipessimizer_clear_anchors();
 void  antipessimizer_save_results();
+void  antipessimizer_save_modules_selected();
 
 void* os_file_read(const char* in_filename, int64_t* out_size);
 ProfilingResults* antipessimizer_get_profiling_results();

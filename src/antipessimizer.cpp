@@ -647,23 +647,26 @@ antipessimizer_stop()
 void
 antipessimizer_save_modules_selected()
 {
-    FILE* config = fopen("antipessimizer.modules", "wb");
-    fprintf(config, "SelectedModules: [");
-
     ModuleTable* modtable = &antip.module_table;
-
-    for (int i = 0; i < array_length(modtable->modules); ++i)
+    if (modtable->modules && array_length(modtable->modules) > 0)
     {
-        ExeModule* em = modtable->modules + i;
+        FILE* config = fopen("antipessimizer.modules", "wb");
+        fprintf(config, "SelectedModules: [");
 
-        bool selected = em->flags & EXE_MODULE_SELECTED;
-        if (selected)
+
+        for (int i = 0; i < array_length(modtable->modules); ++i)
         {
-            fprintf(config, "%.*s,", (uint32_t)em->name.length, em->name.data);
+            ExeModule* em = modtable->modules + i;
+
+            bool selected = em->flags & EXE_MODULE_SELECTED;
+            if (selected)
+            {
+                fprintf(config, "%.*s,", (uint32_t)em->name.length, em->name.data);
+            }
         }
+        fprintf(config, "]");
+        fclose(config);
     }
-    fprintf(config, "]");
-    fclose(config);
 }
 
 void

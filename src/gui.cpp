@@ -763,4 +763,6 @@ gui_save_config(Gui_State* gui)
     fprintf(config, "TimeUnit: %s\n", gui_time_unit_to_string(gui->time_unit));
     fprintf(config, "FixedCycleDiscount: %llu\n", gui->fixed_cycle_discount);
     fclose(config);
+
+    antipessimizer_save_modules_selected();
 }
