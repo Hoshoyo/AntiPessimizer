@@ -1,3 +1,4 @@
+Antipessimizer/
 __history/
 Win64/
 Win32/
@@ -6,3 +7,6 @@ Win32/
 *.local
 *.identcache
 imgui.ini
+*.aps
+*.config
+*.modules

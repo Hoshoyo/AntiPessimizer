@@ -14,6 +14,8 @@ extern "C" {
 #include "gui.h"
 #include "antipessimizer.h"
 
+#include "../resource.h"
+
 // Data
 static ID3D11Device*            g_pd3dDevice = 0;
 static ID3D11DeviceContext*     g_pd3dDeviceContext = 0;
@@ -45,8 +47,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     DWORD foo = GetCurrentThreadId();
     // Create application window
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0, 0, GetModuleHandle(0), 0, 0, 0, 0, L"AntiPessimizerClass", 0 };
+    wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON1));
+    
     RegisterClassExW(&wc);
-    HWND hwnd = CreateWindowW(wc.lpszClassName, L"AntiPessimizer", WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, 0, 0, wc.hInstance, 0);
+    HWND hwnd = CreateWindowW(wc.lpszClassName, L"AntiPessimizer v0.3", WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800, 0, 0, wc.hInstance, 0);
+    SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)wc.hIcon);
 
     // Initialize Direct3D
     if (!CreateDeviceD3D(hwnd))
